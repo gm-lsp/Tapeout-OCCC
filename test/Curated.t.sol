@@ -9,13 +9,22 @@ import {CuratedVault} from "../src/CuratedVault.sol";
 import {ICuratedRegistry} from "../src/interfaces/ICuratedRegistry.sol";
 import {ITapeOutFactory, ITapeOutTransistors, ITapeOutCircuits} from "../src/interfaces/ITapeOut.sol";
 
-/// Fork tests against live BNB Smart Chain state. Run with:
-///   forge test --fork-url https://bsc-dataseed.bnbchain.org
-/// Works come from test/fixtures/manifest.json, produced by `tool/curate.py build`. The manifest's leaves
-/// are bound to chain 56, the registry address REG and the curator, so the registry is placed at REG.
+/// Fork tests against live TapeOut state on BNB Smart Chain, X Layer or Base. Run with one of:
+///   forge test --fork-url https://bsc-dataseed.bnbchain.org   (chain 56)
+///   forge test --fork-url https://rpc.xlayer.tech             (chain 196)
+///   forge test --fork-url https://mainnet.base.org            (chain 8453)
+/// Works come from test/fixtures/manifest.json (chain 56) or manifest.<chainId>.json, produced by
+/// `tool/curate.py build`. The manifest's leaves are bound to the chain, the registry address REG and the curator,
+/// so the registry is placed at REG.
+interface IFactoryFees {
+    function protocolFee() external view returns (uint256);
+}
+
 contract CuratedForkTest is Test {
-    ITapeOutFactory constant FACTORY = ITapeOutFactory(0x68224F668083c29e9800Be2a646d42d18cedF7e2);
-    ITapeOutCircuits constant GENESIS = ITapeOutCircuits(0x50A994E71615474b55559fF4F500928fbc339DD9);
+    ITapeOutFactory FACTORY;
+    // a circuit of another processor on the same chain (its netlist is not in the work list)
+    ITapeOutCircuits FOREIGN;
+    uint256 FOREIGN_ID;
     address constant DEAD = 0x000000000000000000000000000000000000dEaD;
     address constant REG = 0x00000000000000000000000000000000c0dEc0DE;
     bytes4 constant ERC1155_INSUFFICIENT_BALANCE = 0x03dee4c5;
@@ -35,20 +44,50 @@ contract CuratedForkTest is Test {
     uint256 fee; // cached so that vm.prank / vm.expectRevert are not consumed by a fee lookup
 
     function setUp() public {
+        string memory path;
+        if (block.chainid == 56) {
+            FACTORY = ITapeOutFactory(0x68224F668083c29e9800Be2a646d42d18cedF7e2);
+            (FOREIGN, FOREIGN_ID) = (ITapeOutCircuits(0x50A994E71615474b55559fF4F500928fbc339DD9), 50);
+            path = "test/fixtures/manifest.json";
+        } else if (block.chainid == 196 || block.chainid == 8453) {
+            // X Layer and Base: same deployer, same addresses. Base's circuit #1 is a XOR byte-identical to work 3,
+            // so the foreign netlist there is circuit #2.
+            FACTORY = ITapeOutFactory(0x1f09DAeFA827f02CBb40967cc91b259763760761);
+            (FOREIGN, FOREIGN_ID) =
+                (ITapeOutCircuits(0x0565EA48CA41Ae559d8d491dbb0a9ec945DB551b), block.chainid == 196 ? 1 : 2);
+            path = string.concat("test/fixtures/manifest.", vm.toString(block.chainid), ".json");
+        } else {
+            revert("fork BNB Smart Chain (56), X Layer (196) or Base (8453)");
+        }
         deployCodeTo("CuratedRegistry.sol:CuratedRegistry", abi.encode(FACTORY), REG);
         reg = CuratedRegistry(REG);
-        manifest = vm.readFile("test/fixtures/manifest.json");
+        manifest = vm.readFile(path);
         count = vm.parseJsonUint(manifest, ".launch.count");
         launchValue = vm.parseJsonUint(manifest, ".launch.launchValueWei");
         curator = vm.parseJsonAddress(manifest, ".launch.curator");
         assertEq(vm.parseJsonAddress(manifest, ".registry"), REG);
         assertEq(block.chainid, vm.parseJsonUint(manifest, ".chainId"));
+        // the test actors are plain accounts (a labelled address can hold code on a live chain)
+        vm.etch(buyer, "");
+        vm.etch(attacker, "");
         vm.deal(curator, 10 ether);
         vm.deal(buyer, 100 ether);
         vm.deal(attacker, 100 ether);
     }
 
     // ------------------------------------------------------------------ helpers
+
+    /// The factory's protocol fee per mint call (not in ITapeOutFactory; src/ is unchanged).
+    function _protocolFee() internal view returns (uint256) {
+        return IFactoryFees(address(FACTORY)).protocolFee();
+    }
+
+    /// A labelled plain account: on a live chain the address makeAddr derives can hold code (e.g. EIP-7702).
+    function _eoa(string memory name) internal returns (address a) {
+        a = makeAddr(name);
+        vm.etch(a, "");
+    }
+
 
     function _params() internal view returns (CuratedVault.LaunchParams memory p) {
         p.name = vm.parseJsonString(manifest, ".launch.name");
@@ -140,7 +179,7 @@ contract CuratedForkTest is Test {
     function test_Launch_AtomicAndVerified() public {
         (uint256 gasUsed, uint256 cost) = _launch();
         emit log_named_uint("launch gas", gasUsed);
-        emit log_named_decimal_uint("launch cost (BNB)", cost, 18);
+        emit log_named_decimal_uint("launch cost (native coin)", cost, 18);
 
         CuratedVault.LaunchParams memory p = _params();
         assertTrue(reg.isCurated(address(C)));
@@ -168,8 +207,10 @@ contract CuratedForkTest is Test {
         CuratedVault.LaunchParams memory p = _params();
         p.mintPrice = 0;
         p.mintBatch = 0;
+        // deploy fee plus one protocol fee per id (no mint price, so one mint call each), with a margin
+        uint256 value = 2 * (FACTORY.deployFee() + 2 * _protocolFee());
         vm.prank(curator);
-        (address v,, address c) = reg.launch{value: 0.01 ether}(p);
+        (address v,, address c) = reg.launch{value: value}(p);
         assertTrue(reg.isCurated(c));
         assertEq(reg.collectionOf(c).vault, v);
     }
@@ -188,9 +229,10 @@ contract CuratedForkTest is Test {
         reg.launch{value: launchValue}(p);
 
         p = _params();
+        uint256 tooLittle = FACTORY.deployFee() + _protocolFee(); // deploy fee and one protocol fee only
         vm.prank(curator);
         vm.expectRevert(CuratedVault.InsufficientLaunchFunds.selector);
-        reg.launch{value: 0.0011 ether}(p); // the deploy fee (0.001) and one protocol fee, nothing for mints
+        reg.launch{value: tooLittle}(p);
     }
 
     /// L-2: the launcher caps what it is willing to pay in factory and protocol fees.
@@ -374,13 +416,13 @@ contract CuratedForkTest is Test {
         assertTrue(reg.isOfficial(address(C), id)); // the sold work stays official
     }
 
-    /// L-1: a payee that cannot receive BNB can send its proceeds elsewhere.
+    /// L-1: a payee that cannot receive the native coin can send its proceeds elsewhere.
     function test_L1_WithdrawTo() public {
         _launch();
         _buy(1, buyer);
         uint256 owed = vault.owed(curator);
         assertGt(owed, 0);
-        address to = makeAddr("cold");
+        address to = _eoa("cold");
         vm.prank(curator);
         vault.withdrawTo(to);
         assertEq(to.balance, owed);
@@ -542,7 +584,7 @@ contract CuratedForkTest is Test {
         assertEq(reg.collectionOf(address(C)).root, _params().root);
         // an unlisted netlist cannot be sold even with a real proof, index and price from the list
         Work memory w = _work(3);
-        bytes memory foreign = GENESIS.netlist(50);
+        bytes memory foreign = FOREIGN.netlist(FOREIGN_ID);
         vm.prank(buyer);
         vm.expectRevert(CuratedVault.InvalidProof.selector);
         vault.buy{value: w.price + fee}(w.index, foreign, w.nIn, w.nOut, w.price, w.proof, buyer);
@@ -565,7 +607,7 @@ contract CuratedForkTest is Test {
         _launch();
         vm.prank(attacker);
         (bool ok,) = address(vault).call{value: 1 ether}("");
-        assertFalse(ok, "plain BNB");
+        assertFalse(ok, "plain native coin");
 
         // a real circuit of this processor, owned by the attacker, sent to the vault
         uint256 official = _buy(2, buyer);
@@ -656,8 +698,7 @@ contract CuratedForkTest is Test {
     }
 
     function _wallet(string memory name) internal returns (address w) {
-        w = makeAddr(string.concat("p05-limit-", name));
-        assertEq(w.code.length, 0, "test wallet must be a plain EOA on the fork");
+        w = _eoa(string.concat("p05-limit-", name));
     }
 
     function _remaining(address w) internal view returns (uint32 r) {
@@ -918,7 +959,7 @@ contract CuratedForkTest is Test {
     /// The curator can change the receiver or lower the rate, never raise it; nobody else can touch it.
     function test_Royalty_CuratorCanOnlyLower() public {
         _launch();
-        address newReceiver = makeAddr("p05-royalty-new");
+        address newReceiver = _eoa("p05-royalty-new");
         vm.prank(attacker);
         vm.expectRevert(CuratedRegistry.OnlyCurator.selector);
         reg.setRoyalty(address(C), attacker, 100);
@@ -978,8 +1019,8 @@ contract CuratedForkTest is Test {
         _launch();
         uint256 id = _claim(RESERVED_WORK);
         address treasury = _params().treasury;
-        address fan = makeAddr("fan");
-        address fan2 = makeAddr("fan2");
+        address fan = _eoa("fan");
+        address fan2 = _eoa("fan2");
         vm.prank(treasury);
         C.safeTransferFrom(treasury, fan, id); // gift / airdrop
         assertEq(C.ownerOf(id), fan);

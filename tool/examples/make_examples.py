@@ -2,9 +2,12 @@
 """Generate a throw-away example collection of small test circuits (no real artwork).
 
 Writes canvas files and collection.json next to this script. Used by the fork tests.
+Usage: make_examples.py [chainId]   (56 BNB Smart Chain, the default; 196 X Layer; 8453 Base)
+On another chain than 56 the REF work wraps a circuit of that chain and the files get a ".<chainId>" suffix.
 """
 import json
 import os
+import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 P = {"x": 0, "y": 0}
@@ -115,6 +118,28 @@ def ref_genesis13():
     return c.doc()
 
 
+# a circuit that already exists on each chain, for the REF work: (circuits contract, id, nIn, nOut, nState)
+REF_TARGET = {
+    196: ("0x0565EA48CA41Ae559d8d491dbb0a9ec945DB551b", 1, 0, 1, 2),    # X Layer, processor 1, circuit #1
+    8453: ("0x0565EA48CA41Ae559d8d491dbb0a9ec945DB551b", 1, 2, 1, 0),   # Base, processor 1, circuit #1
+}
+
+
+def ref_wrapper(chain):
+    """Wraps an existing circuit of the chain and adds the inverse of its first output."""
+    cpu, cid, n_in, n_out, n_state = REF_TARGET[chain]
+    c = Canvas(f"Circuit #{cid} with inverse")
+    ins = [c.inp() for _ in range(n_in)]
+    r = c.node("ref", {"cpu": cpu, "id": cid, "nIn": n_in, "nOut": n_out, "nState": n_state})
+    for j, i in enumerate(ins):
+        c.wire(i, r, f"in{j}")
+    for j in range(n_out):
+        c.out(r, f"out{j}")
+    g = c.node("nand"); c.wire(r, g, "a", "out0"); c.wire(r, g, "b", "out0")
+    c.out(g)
+    return c.doc()
+
+
 def and2():
     """AND of two inputs: NAND followed by NAND-as-NOT."""
     c = Canvas("AND")
@@ -124,13 +149,16 @@ def and2():
     return c.doc()
 
 
-def main():
+def main(chain=56):
+    sfx = "" if chain == 56 else f".{chain}"
+    ref_work = (("genesis13_parity.json", ref_genesis13(), "Genesis #13 with parity", "5000000000000000") if chain == 56
+                else (f"ref_wrapper{sfx}.json", ref_wrapper(chain), "Circuit #1 with inverse", "5000000000000000"))
     works = [
         ("toggle.json", toggle(), "Toggle", "10000000000000000"),
         ("counter4.json", counter(4), "4-bit counter", "20000000000000000"),
         ("lfsr7.json", lfsr7(), "7-bit LFSR", "30000000000000000"),
         ("xor.json", xor2(), "XOR", "0"),
-        ("genesis13_parity.json", ref_genesis13(), "Genesis #13 with parity", "5000000000000000"),
+        ref_work,
     ]
     spec_works = []
     for fn, doc, title, price in works:
@@ -154,7 +182,7 @@ def main():
         "name": "P05 Test Collection",
         "symbol": "P5TEST",
         "story": "Throw-away test circuits for the Curated Collections fork tests.",
-        "chainId": 56,
+        "chainId": chain,
         "registry": "0x00000000000000000000000000000000C0DEC0DE",   # fixed address used by the fork tests
         "curator": "0x00000000000000000000000000000000000C0FFE",
         "platform": "0x0000000000000000000000000000000000001234",
@@ -178,9 +206,9 @@ def main():
         "spareLatch": 3,
         "works": spec_works,
     }
-    json.dump(spec, open(os.path.join(HERE, "collection.json"), "w"), indent=1)
+    json.dump(spec, open(os.path.join(HERE, f"collection{sfx}.json"), "w"), indent=1)
     print("wrote", len(spec_works), "works")
 
 
 if __name__ == "__main__":
-    main()
+    main(int(sys.argv[1]) if len(sys.argv) > 1 else 56)

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# End-to-end test of the sale and verification page on a local fork of BSC.
+# End-to-end test of the sale and verification page on a local fork of BNB Smart Chain, X Layer or Base
+# (FORK_URL; BNB Smart Chain by default).
 # Needs: Foundry (anvil, forge, cast), Python 3 with playwright, and ethers.umd.min.js (npm i ethers@6.13.4).
 #   web/run_e2e.sh path/to/ethers.umd.min.js
 set -uo pipefail
@@ -23,14 +24,20 @@ A1=$(cast wallet address $K1); A2=$(cast wallet address $K2); B=$(cast wallet ad
 for A in $A1 $A2 $B; do cast rpc anvil_setBalance $A 0x56BC75E2D63100000 --rpc-url $R >/dev/null; done
 cast rpc anvil_impersonateAccount $B --rpc-url $R >/dev/null
 
+CHAIN=$(cast chain-id --rpc-url $R)
+case $CHAIN in
+  56) FACTORY=0x68224F668083c29e9800Be2a646d42d18cedF7e2; SPEC=tool/examples/collection.json ;;
+  196|8453) FACTORY=0x1f09DAeFA827f02CBb40967cc91b259763760761; SPEC=tool/examples/collection.$CHAIN.json ;;
+  *) echo "unknown chain $CHAIN"; exit 1 ;;
+esac
 REG=$(forge create src/CuratedRegistry.sol:CuratedRegistry --rpc-url $R --private-key $K1 --broadcast \
-  --constructor-args 0x68224F668083c29e9800Be2a646d42d18cedF7e2 2>&1 | awk '/Deployed to/{print $3}')
+  --constructor-args $FACTORY 2>&1 | awk '/Deployed to/{print $3}')
 NOW=$(cast block latest --field timestamp --rpc-url $R)
 
-python3 - "$REG" "$A1" "$B" "$NOW" <<'EOF'
+python3 - "$REG" "$A1" "$B" "$NOW" "$SPEC" <<'EOF'
 import json, sys
 reg, cur, buyer, now = sys.argv[1], sys.argv[2], sys.argv[3], int(sys.argv[4])
-s = json.load(open("tool/examples/collection.json"))
+s = json.load(open(sys.argv[5]))
 s.update(registry=reg, curator=cur, saleStart=now + 3600, saleEnd=now + 30 * 86400,
          presale={"start": now - 60, "allowlist": [{"address": buyer, "quota": 1}]})
 # hostile text that the curator really published (and committed on chain): it must render as plain text
@@ -55,7 +62,7 @@ fi
 mkdir -p "$OUT/site"
 cp web/index.html web/app.js "$OUT/site/"
 cp $M "$OUT/site/manifest.json"
-site() { printf '{"manifest":"%s","registry":"%s","circuits":"%s","rpc":"%s","chainId":56}\n' "$1" "$REG" "$CIR" "$R"; }
+site() { printf '{"manifest":"%s","registry":"%s","circuits":"%s","rpc":"%s","chainId":%s}\n' "$1" "$REG" "$CIR" "$R" "$CHAIN"; }
 site manifest.json > "$OUT/site/site.json"
 # altered manifests: a changed price or a changed title must be refused
 python3 - "$M" "$OUT/site" <<'PY'

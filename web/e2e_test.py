@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""End-to-end test of web/index.html against a local anvil fork of BSC.
+"""End-to-end test of web/index.html against a local anvil fork of BNB Smart Chain, X Layer or Base.
 
 Run from the repository root with anvil on 127.0.0.1:8546 and a launched collection; see web/run_e2e.sh.
 The browser gets a stand-in wallet that forwards every request to anvil, where the buyer is impersonated.
@@ -7,6 +7,7 @@ The browser gets a stand-in wallet that forwards every request to anvil, where t
 import json
 import os
 import sys
+import time
 import urllib.request
 
 from playwright.sync_api import sync_playwright
@@ -125,8 +126,16 @@ with sync_playwright() as p:
     nl = bytes.fromhex(ref)
     data = ("0x7bd3ac1d" + (0x60).to_bytes(32, "big").hex() + (1).to_bytes(32, "big").hex() + (1).to_bytes(32, "big").hex()
             + len(nl).to_bytes(32, "big").hex() + nl.hex().ljust(64 * ((len(nl) + 31) // 32), "0"))
-    txh = rpc("eth_sendTransaction", [{"from": STRANGER, "to": CIRCUITS, "data": data, "value": hex(2 * 10**14)}])
-    rcpt = rpc("eth_getTransactionReceipt", [txh])
+    tapeout_fee = int(rpc("eth_call", [{"to": CIRCUITS, "data": "0xadfb2b69"}, "latest"]), 16)
+    txh = rpc("eth_sendTransaction", [{"from": STRANGER, "to": CIRCUITS, "data": data, "value": hex(tapeout_fee)}])
+    rcpt = None
+    for _ in range(60):  # a fork may fetch remote state while it mines
+        rcpt = rpc("eth_getTransactionReceipt", [txh])
+        if rcpt:
+            break
+        time.sleep(1)
+    if not (rcpt and int(rcpt["status"], 16) == 1):
+        print("  wrapper tape-out:", txh, rcpt and rcpt.get("status"), "fee", tapeout_fee)
     check("stranger taped out a REF wrapper", rcpt and int(rcpt["status"], 16) == 1)
     wrapper_id = 3
 

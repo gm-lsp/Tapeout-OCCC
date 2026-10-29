@@ -61,7 +61,19 @@ function toast(msg, err) {
   clearTimeout(toast._t); toast._t = setTimeout(() => (t.hidden = true), err ? 7000 : 4000);
 }
 const short = (a) => (a ? a.slice(0, 6) + "…" + a.slice(-4) : "");
-const bnb = (wei) => { const v = E.formatEther(BigInt(wei)); return v === "0.0" ? "免费" : v.replace(/\.0$/, "") + " BNB"; };
+// TapeOut chains this page knows; site.json can name another with "addChain"
+const CHAINS = {
+  56: { chainName: "BNB Smart Chain", nativeCurrency: { name: "BNB", symbol: "BNB", decimals: 18 },
+    rpcUrls: ["https://bsc-dataseed.bnbchain.org"], blockExplorerUrls: ["https://bscscan.com"] },
+  196: { chainName: "X Layer", nativeCurrency: { name: "OKB", symbol: "OKB", decimals: 18 },
+    rpcUrls: ["https://rpc.xlayer.tech"], blockExplorerUrls: ["https://www.okx.com/web3/explorer/xlayer"] },
+  8453: { chainName: "Base", nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
+    rpcUrls: ["https://mainnet.base.org"], blockExplorerUrls: ["https://basescan.org"] },
+};
+const chainOf = () => S.cfg?.addChain || CHAINS[Number(S.cfg?.chainId)] || null;
+const coin = () => chainOf()?.nativeCurrency?.symbol || "原生币";
+const chainName = () => chainOf()?.chainName || `链 ${S.cfg?.chainId}`;
+const amount = (wei) => { const v = E.formatEther(BigInt(wei)); return v === "0.0" ? "免费" : v.replace(/\.0$/, "") + " " + coin(); };
 const when = (ts) => new Date(Number(ts) * 1000).toLocaleString("zh-CN", { hour12: false });
 const sameAddr = (a, b) => typeof a === "string" && typeof b === "string" && a.toLowerCase() === b.toLowerCase();
 const intOrQ = (v) => (Number.isSafeInteger(v) && v >= 0 ? String(v) : "?");
@@ -81,7 +93,7 @@ function explainError(e) {
     if (p && ERR_TEXT[p.name]) return ERR_TEXT[p.name];
   } catch (_) { /* not a vault error */ }
   if (e?.code === "ACTION_REJECTED" || e?.info?.error?.code === 4001) return "你取消了这笔交易。";
-  if (e?.code === "INSUFFICIENT_FUNDS") return "钱包里的 BNB 不够支付价格和流片费。";
+  if (e?.code === "INSUFFICIENT_FUNDS") return `钱包里的 ${coin()} 不够支付价格和流片费。`;
   return "交易没有成功：" + (e?.shortMessage || e?.message || "未知原因");
 }
 
@@ -298,7 +310,7 @@ function render() {
       el("td", { class: "mono", text: String(w.index) }),
       el("td", { text: w.title }),
       el("td", { class: "mono", text: `${intOrQ(w.nand)} NAND，${intOrQ(w.latch)} LATCH` }),
-      el("td", { text: w.reserved ? "不出售" : bnb(w.priceWei) }),
+      el("td", { text: w.reserved ? "不出售" : amount(w.priceWei) }),
       el("td", { class: "status " + st.c, text: st.t }),
       cell);
     rows.append(tr);
@@ -317,13 +329,13 @@ async function connect() {
     try { sessionStorage.setItem("p05-reconnect", "1"); } catch (_) { /* storage may be unavailable */ }
     try { await window.ethereum.request({ method: "wallet_switchEthereumChain", params: [{ chainId }] }); }
     catch (e) {
-      const add = e?.code === 4902 && (S.cfg.addChain || (want === 56n ? BSC : null));
+      const add = e?.code === 4902 && chainOf();
       try {
         if (!add) throw e;
         await window.ethereum.request({ method: "wallet_addEthereumChain", params: [{ ...add, chainId }] });
       } catch (_) {
         try { sessionStorage.removeItem("p05-reconnect"); } catch (_) { /* ignore */ }
-        toast("请在钱包里切换到 BNB Chain 后再连接。", true); return;
+        toast(`请在钱包里切换到 ${chainName()} 后再连接。`, true); return;
       }
     }
     if ((await new E.BrowserProvider(window.ethereum).getNetwork()).chainId !== want) return;
@@ -345,14 +357,11 @@ if (window.ethereum?.on) {
   window.ethereum.on("chainChanged", () => location.reload());
 }
 
-const BSC = { chainName: "BNB Smart Chain", nativeCurrency: { name: "BNB", symbol: "BNB", decimals: 18 },
-  rpcUrls: ["https://bsc-dataseed.bnbchain.org"], blockExplorerUrls: ["https://bscscan.com"] };
-
 async function send(btn, label, fn) {
   if (!S.signer) { await connect(); if (!S.signer) return; }
   // never send money on another chain, even if the wallet changed chain without telling the page
   if ((await new E.BrowserProvider(window.ethereum).getNetwork()).chainId !== BigInt(S.cfg.chainId)) {
-    toast("钱包当前不在 BNB Chain 上，请切换网络后重试。", true); disconnect(); return;
+    toast(`钱包当前不在 ${chainName()} 上，请切换网络后重试。`, true); disconnect(); return;
   }
   btn.disabled = true; const old = btn.textContent; btn.textContent = "等待钱包确认…";
   try {

@@ -1,0 +1,88 @@
+{
+ "name": "P05 Test Collection",
+ "symbol": "P5TEST",
+ "story": "Throw-away test circuits for the Curated Collections fork tests.",
+ "chainId": 8453,
+ "registry": "0x00000000000000000000000000000000C0DEC0DE",
+ "curator": "0x00000000000000000000000000000000000C0FFE",
+ "platform": "0x0000000000000000000000000000000000001234",
+ "platformBps": 500,
+ "treasury": "0x0000000000000000000000000000000000007EA5",
+ "mintPriceWei": "10000000000000",
+ "mintBatch": 2500,
+ "saleStart": 2,
+ "saleEnd": 4102444800,
+ "limitPerWallet": false,
+ "royalty": {
+  "receiver": "0x00000000000000000000000000000000000C0FFE",
+  "bps": 300
+ },
+ "presale": {
+  "start": 1,
+  "allowlist": [
+   {
+    "address": "0x00000000000000000000000000000000000A11CE",
+    "quota": 2
+   },
+   {
+    "address": "0x0000000000000000000000000000000000000B0B",
+    "quota": 1
+   }
+  ]
+ },
+ "metadataURI": "ar://P05TestMetadataDirectory_NotUploaded_000000",
+ "spareNand": 5,
+ "spareLatch": 3,
+ "works": [
+  {
+   "file": "toggle.json",
+   "title": "Toggle",
+   "priceWei": "10000000000000000",
+   "description": "One LATCH that flips every cycle.",
+   "image": "ar://T0gg1eImage-Test_Only_Not_Uploaded_00000000",
+   "attributes": [
+    {
+     "trait_type": "Gates",
+     "value": 2
+    },
+    {
+     "trait_type": "Kind",
+     "value": "clock"
+    }
+   ]
+  },
+  {
+   "file": "counter4.json",
+   "title": "4-bit counter",
+   "priceWei": "20000000000000000",
+   "image": "ipfs://bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi/counter4.png"
+  },
+  {
+   "file": "lfsr7.json",
+   "title": "7-bit LFSR",
+   "priceWei": "30000000000000000"
+  },
+  {
+   "file": "xor.json",
+   "title": "XOR",
+   "priceWei": "0"
+  },
+  {
+   "file": "ref_wrapper.8453.json",
+   "title": "Circuit #1 with inverse",
+   "priceWei": "5000000000000000"
+  },
+  {
+   "netlist": "0x000000020000030000000200000a0000000300000a0000000b00000c0000000d0000040000000d00000e0000000400000e0000000f0000100000000a00000e000000050000060000000500001300000006000013000000140000150000001600000700000016000017000000070000170000001800001900000013000017000000080000090000000800001c0000000900001c0000001d00001e0000001c00001c0000001100001a000000110000210000001a000021000000220000230000002400001f000000240000250000001f00002500000026000027000000210000250000001200001b0000001200002a0000001b00002a0000002b00002c0000002d0000200000002d00002e0000002000002e0000002f0000300000002a00002e00000029000031000000290000330000003100003300000034000035000000330000330000003200003700000032000038000000370000380000003900003a0000003800003800000026000027000000340000350000003900003a00000038000038",
+   "nIn": 8,
+   "nOut": 4,
+   "title": "Popcount 8 (raw netlist, reserved)",
+   "reserved": true
+  },
+  {
+   "file": "and2.json",
+   "title": "\u4e0e\u95e8 AND\uff08\u56fd\u5e93\u9884\u7559\uff09",
+   "reserved": true
+  }
+ ]
+}

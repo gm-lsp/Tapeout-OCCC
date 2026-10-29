@@ -44,10 +44,29 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import tap02_reference as ref  # noqa: E402  (official TAP-02 reference implementation, MIT)
 
 MIN_SUPPLY = 10_000          # factory minimum transistor supply
-TAPEOUT_FACTORY = "0x68224F668083c29e9800Be2a646d42d18cedF7e2"   # BNB Smart Chain
-DEFAULT_DEPLOY_FEE = 10**15      # 0.001 BNB, factory deployFee() on 2026-10-25
-DEFAULT_PROTOCOL_FEE = 10**14    # 0.0001 BNB per mint call, protocolFee() on 2026-10-25
-MAX_TAPEOUT_BYTES = 34_000   # practical single tape-out limit observed on mainnet
+# TapeOut on each chain: processor factory, and the fees it charged when last checked (deployFee() and protocolFee()
+# per mint call, in the chain's native coin). With --rpc, build reads the current fees from the factory instead.
+CHAINS = {
+    56: {"name": "BNB Smart Chain", "coin": "BNB", "factory": "0x68224F668083c29e9800Be2a646d42d18cedF7e2",
+         "deployFee": 10**15, "protocolFee": 10**14},                       # 2026-10-25
+    196: {"name": "X Layer", "coin": "OKB", "factory": "0x1f09DAeFA827f02CBb40967cc91b259763760761",
+          "deployFee": 66 * 10**14, "protocolFee": 66 * 10**13},            # 2026-10-30
+    8453: {"name": "Base", "coin": "ETH", "factory": "0x1f09DAeFA827f02CBb40967cc91b259763760761",
+           "deployFee": 3 * 10**14, "protocolFee": 3 * 10**13},             # 2026-10-30
+}
+TAPEOUT_FACTORY = CHAINS[56]["factory"]   # kept for callers of earlier versions (BNB Smart Chain)
+DEFAULT_DEPLOY_FEE, DEFAULT_PROTOCOL_FEE = CHAINS[56]["deployFee"], CHAINS[56]["protocolFee"]
+
+
+def chain_info(chain_id: int) -> dict:
+    if chain_id not in CHAINS:
+        known = ", ".join(str(k) + " " + v["name"] for k, v in CHAINS.items())
+        raise DesignError(f"chain {chain_id} is not a TapeOut chain this tool knows ({known}); for another chain "
+                          "give deployFeeWei and protocolFeeWei in the spec, and factory when checking REFs with --rpc")
+    return CHAINS[chain_id]
+
+
+MAX_TAPEOUT_BYTES = 34_000   # practical single tape-out limit observed on BNB Smart Chain mainnet
 
 # ============================================================================ keccak-256
 _RC = [0x0000000000000001, 0x0000000000008082, 0x800000000000808A, 0x8000000080008000,
@@ -578,7 +597,7 @@ def _addr(s: str) -> str:
 
 def _uint(v, what: str, hi: int = 2**256 - 1) -> int:
     """A whole number given as a JSON integer or a string of decimal digits (wei amounts are often too big
-    for JSON numbers). Floats, booleans, negatives and values above `hi` are refused, so "0.05" (BNB) or
+    for JSON numbers). Floats, booleans, negatives and values above `hi` are refused, so "0.05" (coins) or
     true can never silently become a price."""
     if isinstance(v, bool) or not (isinstance(v, int) or (isinstance(v, str) and v.isdigit() and v.isascii())):
         raise DesignError(f"{what} must be a whole number (an integer, or a string of digits), not {v!r}")
@@ -588,7 +607,7 @@ def _uint(v, what: str, hi: int = 2**256 - 1) -> int:
     return n
 
 
-def resolve_refs_onchain(netlist: bytes, n_in: int, url: str) -> dict:
+def resolve_refs_onchain(netlist: bytes, n_in: int, url: str, factory: str = TAPEOUT_FACTORY) -> dict:
     """Read every REF target's circuitInfo from the chain. Rejects targets that do not exist yet:
     a work must never point at a circuit id someone else could still claim."""
     refs = {}
@@ -596,7 +615,7 @@ def resolve_refs_onchain(netlist: bytes, n_in: int, url: str) -> dict:
         if e.op != ref.REF or (e.cpu, e.cid) in refs:
             continue
         cpu = "0x" + e.cpu.hex()
-        ok = rpc_call(url, TAPEOUT_FACTORY, "0x" + sel("isCPU(address)") + cpu[2:].rjust(64, "0"))
+        ok = rpc_call(url, factory, "0x" + sel("isCPU(address)") + cpu[2:].rjust(64, "0"))
         if int(ok, 16) != 1:
             raise DesignError(f"REF target {cpu} is not a TapeOut processor")
         try:
@@ -621,6 +640,18 @@ def build(spec_path: str, out_path: str, url: str | None = None) -> dict:
     spec = json.load(open(spec_path, encoding="utf-8"))
     base = os.path.dirname(os.path.abspath(spec_path))
     chain_id = _uint(spec.get("chainId", 56), "chainId")
+    if chain_id in CHAINS:
+        chain = CHAINS[chain_id]
+    elif "deployFeeWei" in spec and "protocolFeeWei" in spec and (not url or "factory" in spec):
+        # another chain (a testnet, a devnet): the spec names the fees, and the factory if REFs are checked on chain
+        chain = {"name": f"chain {chain_id}", "factory": _addr(spec.get("factory", "0x" + "00" * 20)),
+                 "deployFee": 0, "protocolFee": 0}
+    else:
+        chain = chain_info(chain_id)   # raises: unknown chain without fees (and factory)
+    if url:
+        rpc_chain = int(rpc_raw(url, "eth_chainId", []), 16)
+        if rpc_chain != chain_id:
+            raise DesignError(f"the spec is for chain {chain_id}, but the RPC is chain {rpc_chain}")
     registry = _addr(spec["registry"])
     curator = _addr(spec["curator"])
     works, warnings = [], []
@@ -631,7 +662,7 @@ def build(spec_path: str, out_path: str, url: str | None = None) -> dict:
         if enc["ref"]:
             if url is None:
                 raise DesignError(f"work {i} uses REF: run build with --rpc so every REF target is checked on chain")
-            onchain = resolve_refs_onchain(unhex(enc["netlist"]), enc["nIn"], url)
+            onchain = resolve_refs_onchain(unhex(enc["netlist"]), enc["nIn"], url, chain["factory"])
             enc = finish(unhex(enc["netlist"]), enc["nIn"], enc["nOut"], onchain)
             if enc["nand"] == 0 and enc["latch"] == 0:
                 warnings.append(f"work {i} is pure REF: anyone can tape out byte-identical copies of it "
@@ -678,9 +709,14 @@ def build(spec_path: str, out_path: str, url: str | None = None) -> dict:
     if mint_price > 0 and mint_batch == 0:
         raise DesignError("mintBatch must be at least 1 when mintPriceWei is not 0")
     calls = _mint_calls(latch_supply, mint_price, mint_batch) + _mint_calls(nand_supply, mint_price, mint_batch)
-    # the fees TapeOut charges today; a launcher that read them from the chain can pass them in
-    deploy_fee = _uint(spec.get("deployFeeWei", DEFAULT_DEPLOY_FEE), "deployFeeWei")
-    protocol_fee = _uint(spec.get("protocolFeeWei", DEFAULT_PROTOCOL_FEE), "protocolFeeWei")
+    # the factory's fees, which a new processor inherits (the vault pays the transistor contract's protocolFee(), which
+    # equals the factory's for a fresh processor); a launcher that read them from the chain can pass them in
+    default_deploy, default_protocol = chain["deployFee"], chain["protocolFee"]
+    if url and ("deployFeeWei" not in spec or "protocolFeeWei" not in spec):
+        default_deploy = int(rpc_call(url, chain["factory"], "0x" + sel("deployFee()")), 16)
+        default_protocol = int(rpc_call(url, chain["factory"], "0x" + sel("protocolFee()")), 16)
+    deploy_fee = _uint(spec.get("deployFeeWei", default_deploy), "deployFeeWei")
+    protocol_fee = _uint(spec.get("protocolFeeWei", default_protocol), "protocolFeeWei")
     fees = deploy_fee + calls * protocol_fee
     max_fees = _uint(spec.get("maxLaunchFeesWei", fees), "maxLaunchFeesWei")
     reserved_count = sum(1 for w in works if w["reserved"])
@@ -881,6 +917,16 @@ def checkroot(manifest_path: str, url: str | None = None, registry: str | None =
         chain_id = int(rpc_raw(url, "eth_chainId", []), 16)
         if chain_id != int(m["chainId"]):
             problems.append(f"the manifest was built for chain {m['chainId']}, but the RPC is chain {chain_id}")
+        elif chain_id in CHAINS:
+            try:
+                fac = rpc_call(url, reg, "0x" + sel("FACTORY()"))
+            except RuntimeError:
+                fac = "0x"
+            if len(fac) < 66:
+                problems.append(f"registry {reg} has no FACTORY(): it is not a CuratedRegistry")
+            elif int(fac, 16) != int(CHAINS[chain_id]["factory"], 16):
+                problems.append(f"registry {reg} is bound to factory 0x{fac[-40:]}, not TapeOut's factory on "
+                                f"{CHAINS[chain_id]['name']}")
         cpad = circuits.lower()[2:].rjust(64, "0")
         r = rpc_call(url, reg, "0x" + sel("collectionOf(address)") + cpad)
         word = lambda k: r[2 + 64 * k: 2 + 64 * (k + 1)]  # noqa: E731
@@ -950,7 +996,8 @@ def checkroot(manifest_path: str, url: str | None = None, registry: str | None =
 # ============================================================================ chain reads
 def rpc_raw(url: str, method: str, params: list):
     body = json.dumps({"jsonrpc": "2.0", "id": 1, "method": method, "params": params}).encode()
-    req = urllib.request.Request(url, body, {"content-type": "application/json"})
+    # some public nodes refuse requests without a User-Agent
+    req = urllib.request.Request(url, body, {"content-type": "application/json", "user-agent": "curate.py"})
     r = json.load(urllib.request.urlopen(req, timeout=30))
     if "error" in r:
         raise RuntimeError(r["error"])
@@ -960,7 +1007,8 @@ def rpc_raw(url: str, method: str, params: list):
 def rpc_call(url: str, to: str, data: str) -> str:
     body = json.dumps({"jsonrpc": "2.0", "id": 1, "method": "eth_call",
                        "params": [{"to": to, "data": data}, "latest"]}).encode()
-    req = urllib.request.Request(url, body, {"content-type": "application/json"})
+    # some public nodes refuse requests without a User-Agent
+    req = urllib.request.Request(url, body, {"content-type": "application/json", "user-agent": "curate.py"})
     r = json.load(urllib.request.urlopen(req, timeout=30))
     if "error" in r:
         raise RuntimeError(r["error"])

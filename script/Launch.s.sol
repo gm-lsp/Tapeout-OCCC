@@ -9,6 +9,8 @@ import {CuratedVault} from "../src/CuratedVault.sol";
 ///
 ///   MANIFEST=test/fixtures/my_manifest.json forge script script/Launch.s.sol \
 ///       --rpc-url https://bsc-dataseed.bnbchain.org --broadcast --private-key <curator key>
+///   (or --rpc-url https://rpc.xlayer.tech for X Layer, https://mainnet.base.org for Base; the manifest must be
+///   built for that chain)
 ///
 /// The sender must be the manifest's curator. The manifest must sit under test/fixtures/ (Foundry's read
 /// permission). Prints the processor (circuits) address to put in web/site.json.

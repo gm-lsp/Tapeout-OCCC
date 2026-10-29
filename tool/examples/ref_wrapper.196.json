@@ -1,0 +1,85 @@
+{
+ "format": "tapeout-canvas",
+ "v": 1,
+ "name": "Circuit #1 with inverse",
+ "nodes": [
+  {
+   "id": "r1",
+   "type": "ref",
+   "position": {
+    "x": 0,
+    "y": 0
+   },
+   "data": {
+    "cpu": "0x0565EA48CA41Ae559d8d491dbb0a9ec945DB551b",
+    "id": 1,
+    "nIn": 0,
+    "nOut": 1,
+    "nState": 2
+   }
+  },
+  {
+   "id": "o2",
+   "type": "output",
+   "position": {
+    "x": 0,
+    "y": 0
+   },
+   "data": {
+    "index": 0,
+    "label": ""
+   }
+  },
+  {
+   "id": "n4",
+   "type": "nand",
+   "position": {
+    "x": 0,
+    "y": 0
+   },
+   "data": {}
+  },
+  {
+   "id": "o7",
+   "type": "output",
+   "position": {
+    "x": 0,
+    "y": 0
+   },
+   "data": {
+    "index": 1,
+    "label": ""
+   }
+  }
+ ],
+ "edges": [
+  {
+   "id": "e3",
+   "source": "r1",
+   "sourceHandle": "out0",
+   "target": "o2",
+   "targetHandle": "in"
+  },
+  {
+   "id": "e5",
+   "source": "r1",
+   "sourceHandle": "out0",
+   "target": "n4",
+   "targetHandle": "a"
+  },
+  {
+   "id": "e6",
+   "source": "r1",
+   "sourceHandle": "out0",
+   "target": "n4",
+   "targetHandle": "b"
+  },
+  {
+   "id": "e8",
+   "source": "n4",
+   "sourceHandle": "out",
+   "target": "o7",
+   "targetHandle": "in"
+  }
+ ]
+}

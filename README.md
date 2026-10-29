@@ -4,6 +4,18 @@ Reference implementation of the TAP draft **Official Curated Circuit Collections
 
 On TapeOut, anyone can add circuits to any processor's NFT collection — with transistors any netlist, and without transistors a pure-REF netlist whose `circuitInfo` copies an official work. This project makes "which circuits are the real works" a public on-chain fact based on **who taped the circuit out**.
 
+## Chains
+
+TapeOut runs on BNB Smart Chain, X Layer and Base, and so does this protocol, unchanged: deploy one `CuratedRegistry` per chain with that chain's TapeOut factory. A collection, its work list and its officialness belong to one chain (leaves include the chain id).
+
+| Chain | chainId | Native coin | TapeOut factory (registry constructor argument) | Public RPC |
+|---|---|---|---|---|
+| BNB Smart Chain | 56 | BNB | `0x68224F668083c29e9800Be2a646d42d18cedF7e2` | `https://bsc-dataseed.bnbchain.org` |
+| X Layer | 196 | OKB | `0x1f09DAeFA827f02CBb40967cc91b259763760761` | `https://rpc.xlayer.tech` |
+| Base | 8453 | ETH | `0x1f09DAeFA827f02CBb40967cc91b259763760761` | `https://mainnet.base.org` |
+
+`curate.py` knows these factories: `build` checks that `--rpc` is on the spec's `chainId` and, unless the spec gives `deployFeeWei` and `protocolFeeWei`, reads the current fees from that chain's factory; `checkroot` checks the registry's `FACTORY()`. For any other chain (a testnet, a devnet) the spec must give `deployFeeWei` and `protocolFeeWei`, and `factory` when REF targets are checked with `--rpc`. The fork tests run on any of the three; `tool/examples/make_examples.py <chainId>` writes the example collection for a chain (`collection.json` for 56, `collection.<chainId>.json` otherwise) and `test/fixtures/manifest[.<chainId>].json` is its manifest.
+
 ## How it works
 
 1. **Launch (one transaction, sent by the curator).** `CuratedRegistry.launch` deploys a `CuratedVault`. The vault creates the processor, mints the whole transistor supply to itself, and binds itself to the registry, which re-checks all of that on chain.
@@ -33,7 +45,7 @@ No contract has an owner, an admin function or an upgrade path.
 | `tool/curate.py` | encoder, Merkle builder, manifest, verifier (Python 3.11+, no dependencies) |
 | `tool/tap02_reference.py`, `tool/tap02_vectors.json` | official TAP-02 reference implementation and vectors (MIT) |
 | `tool/examples/` | a throw-away example collection of small test circuits |
-| `test/Curated.t.sol` | 50 fork tests |
+| `test/Curated.t.sol` | 50 fork tests (BNB Smart Chain, X Layer or Base) |
 | `script/Launch.s.sol` | launch a collection from a manifest (run with the curator's key) |
 | `script/Demo.s.sol` | end-to-end demo on a local fork |
 | `web/index.html`, `web/app.js` | sale and verification page: two static files, read `site.json` and `manifest.json` next to them |
@@ -56,12 +68,16 @@ python3 tool/curate.py selftest
 python3 tool/curate.py encode tool/examples/lfsr7.json
 
 # 3. build a launch manifest from a collection spec (--rpc checks REF targets on chain)
-python3 tool/examples/make_examples.py
+python3 tool/examples/make_examples.py          # 196 or 8453 for X Layer or Base
 python3 tool/curate.py build tool/examples/collection.json test/fixtures/manifest.json \
     --rpc https://bsc-dataseed.bnbchain.org
+#   X Layer: build tool/examples/collection.196.json test/fixtures/manifest.196.json --rpc https://rpc.xlayer.tech
+#   Base:    build tool/examples/collection.8453.json test/fixtures/manifest.8453.json --rpc https://mainnet.base.org
 
-# 4. run the fork tests (Foundry)
+# 4. run the fork tests (Foundry) on BNB Smart Chain, X Layer or Base
 forge test --fork-url https://bsc-dataseed.bnbchain.org -vv
+forge test --fork-url https://rpc.xlayer.tech
+forge test --fork-url https://mainnet.base.org
 
 # 5. after deployment: is circuit 7 of a collection official? (the manifest is optional; it adds the title)
 python3 tool/curate.py verify test/fixtures/my_manifest.json --rpc https://bsc-dataseed.bnbchain.org \
@@ -120,7 +136,8 @@ Copy `web/index.html`, `web/app.js`, the manifest (as `manifest.json`) and a `si
 - Launch must be sent by the curator, with `msg.value` = the manifest's `launchValueWei` (fees + one mint batch of float). The unused part is refunded in the same transaction. If TapeOut raises its fees above `maxLaunchFeesWei`, the launch reverts.
 - Publish the whole manifest before the sale opens: buyers need it for proofs, and verifiers need it to rebuild the root.
 - Four rounds of independent internal review found no critical issue; their findings are fixed (on-chain fixes have regression tests such as `test_H1_*`, `test_M1_*`, `test_L*`) or listed in the TAP's Security Considerations.
-- Free public BSC nodes keep recent state only, so long-lived `anvil` forks fail after about a minute; `forge test --fork-url` re-forks the latest block on every run, and `web/run_e2e.sh` forks from a node that keeps older state (`FORK_URL`, default `https://bsc-mainnet.public.blastapi.io`).
+- Free public BSC nodes keep recent state only, so long-lived `anvil` forks fail after about a minute; `forge test --fork-url` re-forks the latest block on every run, and `web/run_e2e.sh` forks from a node that keeps older state (`FORK_URL`, default `https://bsc-mainnet.public.blastapi.io`; `FORK_URL=https://rpc.xlayer.tech` or `https://mainnet.base.org` runs it on X Layer or Base).
+- `site.json` names the chain (`chainId`); the page knows how to add BNB Smart Chain, X Layer and Base to a wallet and shows prices in the chain's coin (`addChain` in `site.json` covers any other chain).
 - Not audited. Do not use with significant value before an independent audit.
 
 Licence: MIT (code), CC0 (TAP text).
