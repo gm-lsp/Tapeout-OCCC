@@ -1,0 +1,1379 @@
+{
+ "chainVerified": false,
+ "format": "tap-netlist-vectors/1",
+ "illFormed": [
+  {
+   "nIn": 2,
+   "nOut": 1,
+   "name": "unknown_opcode",
+   "netlist": "0x03000002000003",
+   "reason": "unknown opcode 0x03 at byte 0",
+   "refs": [
+    {
+     "cpu": "0x00000000000000000000000000000000000000aa",
+     "id": 1,
+     "nIn": 1,
+     "nOut": 1,
+     "netlist": "0x0100000700000003000002000000030000040000000200000400000005000006"
+    }
+   ]
+  },
+  {
+   "nIn": 2,
+   "nOut": 1,
+   "name": "truncated_record",
+   "netlist": "0x0000000200",
+   "reason": "truncated record at byte 4",
+   "refs": [
+    {
+     "cpu": "0x00000000000000000000000000000000000000aa",
+     "id": 1,
+     "nIn": 1,
+     "nOut": 1,
+     "netlist": "0x0100000700000003000002000000030000040000000200000400000005000006"
+    }
+   ]
+  },
+  {
+   "nIn": 2,
+   "nOut": 1,
+   "name": "nand_forward_reference",
+   "netlist": "0x0000000200000500000002000003",
+   "reason": "signal 5 referenced by element at 4 is not available",
+   "refs": [
+    {
+     "cpu": "0x00000000000000000000000000000000000000aa",
+     "id": 1,
+     "nIn": 1,
+     "nOut": 1,
+     "netlist": "0x0100000700000003000002000000030000040000000200000400000005000006"
+    }
+   ]
+  },
+  {
+   "nIn": 2,
+   "nOut": 0,
+   "name": "nOut_zero",
+   "netlist": "0x00000002000003",
+   "reason": "nIn/nOut out of range",
+   "refs": [
+    {
+     "cpu": "0x00000000000000000000000000000000000000aa",
+     "id": 1,
+     "nIn": 1,
+     "nOut": 1,
+     "netlist": "0x0100000700000003000002000000030000040000000200000400000005000006"
+    }
+   ]
+  },
+  {
+   "nIn": 1,
+   "nOut": 1,
+   "name": "output_is_an_input",
+   "netlist": "0x",
+   "reason": "too few signals for outputs",
+   "refs": [
+    {
+     "cpu": "0x00000000000000000000000000000000000000aa",
+     "id": 1,
+     "nIn": 1,
+     "nOut": 1,
+     "netlist": "0x0100000700000003000002000000030000040000000200000400000005000006"
+    }
+   ]
+  },
+  {
+   "nIn": 2,
+   "nOut": 2,
+   "name": "more_outputs_than_elements",
+   "netlist": "0x00000002000003",
+   "reason": "too few signals for outputs",
+   "refs": [
+    {
+     "cpu": "0x00000000000000000000000000000000000000aa",
+     "id": 1,
+     "nIn": 1,
+     "nOut": 1,
+     "netlist": "0x0100000700000003000002000000030000040000000200000400000005000006"
+    }
+   ]
+  },
+  {
+   "nIn": 2,
+   "nOut": 1,
+   "name": "ref_arity_mismatch",
+   "netlist": "0x0200000000000000000000000000000000000000aa00000000000000010201000002000003",
+   "reason": "REF arity does not match the target circuit",
+   "refs": [
+    {
+     "cpu": "0x00000000000000000000000000000000000000aa",
+     "id": 1,
+     "nIn": 1,
+     "nOut": 1,
+     "netlist": "0x0100000700000003000002000000030000040000000200000400000005000006"
+    }
+   ]
+  },
+  {
+   "nIn": 1,
+   "nOut": 1,
+   "name": "ref_target_not_registered",
+   "netlist": "0x0200000000000000000000000000000000000000aa00000000000000090101000002",
+   "reason": "REF target is not a circuit of a registered processor",
+   "refs": [
+    {
+     "cpu": "0x00000000000000000000000000000000000000aa",
+     "id": 1,
+     "nIn": 1,
+     "nOut": 1,
+     "netlist": "0x0100000700000003000002000000030000040000000200000400000005000006"
+    }
+   ]
+  }
+ ],
+ "packing": "bit i of a vector is bit (i mod 8) of byte floor(i / 8); LSB first",
+ "packingEdgeCases": {
+  "cases": [
+   {
+    "case": "standard",
+    "inputs": "03",
+    "outputs": "00"
+   },
+   {
+    "case": "padding bits set",
+    "inputs": "ff",
+    "outputs": "00"
+   },
+   {
+    "case": "one extra byte",
+    "inputs": "03aa",
+    "outputs": "00"
+   },
+   {
+    "case": "empty (all inputs read as 0)",
+    "inputs": "",
+    "outputs": "01"
+   },
+   {
+    "case": "short: only padding differs",
+    "inputs": "fc",
+    "outputs": "01"
+   }
+  ],
+  "circuit": "nand"
+ },
+ "valid": [
+  {
+   "nIn": 2,
+   "nOut": 1,
+   "nState": 0,
+   "name": "nand",
+   "netlist": "0x00000002000003",
+   "note": "one NAND gate",
+   "refs": [],
+   "source": "constructed",
+   "truthTable": [
+    {
+     "inputs": "00",
+     "outputs": "01"
+    },
+    {
+     "inputs": "01",
+     "outputs": "01"
+    },
+    {
+     "inputs": "02",
+     "outputs": "01"
+    },
+    {
+     "inputs": "03",
+     "outputs": "00"
+    }
+   ]
+  },
+  {
+   "nIn": 1,
+   "nOut": 2,
+   "nState": 0,
+   "name": "constants",
+   "netlist": "0x0000000200000100000000000002",
+   "note": "outputs NOT x and constant 1 (NAND with signal 0)",
+   "refs": [],
+   "source": "constructed",
+   "truthTable": [
+    {
+     "inputs": "00",
+     "outputs": "03"
+    },
+    {
+     "inputs": "01",
+     "outputs": "02"
+    }
+   ]
+  },
+  {
+   "nIn": 8,
+   "nOut": 4,
+   "nState": 0,
+   "name": "popcount8_3151",
+   "netlist": "0x000000020000030000000200000a0000000300000a0000000b00000c0000000d0000040000000d00000e0000000400000e0000000f0000100000000a00000e000000050000060000000500001300000006000013000000140000150000001600000700000016000017000000070000170000001800001900000013000017000000080000090000000800001c0000000900001c0000001d00001e0000001c00001c0000001100001a000000110000210000001a000021000000220000230000002400001f000000240000250000001f00002500000026000027000000210000250000001200001b0000001200002a0000001b00002a0000002b00002c0000002d0000200000002d00002e0000002000002e0000002f0000300000002a00002e00000029000031000000290000330000003100003300000034000035000000330000330000003200003700000032000038000000370000380000003900003a0000003800003800000026000027000000340000350000003900003a00000038000038",
+   "note": "on-chain bytes of circuit #3151 on processor 0xb1024b89886B9a34Aa4ff5F31C411D708b20a14C; outputs are the popcount of the 8 inputs, LSB first",
+   "refs": [],
+   "source": "on-chain",
+   "truthTable": [
+    {
+     "inputs": "00",
+     "outputs": "00"
+    },
+    {
+     "inputs": "01",
+     "outputs": "01"
+    },
+    {
+     "inputs": "02",
+     "outputs": "01"
+    },
+    {
+     "inputs": "03",
+     "outputs": "02"
+    },
+    {
+     "inputs": "04",
+     "outputs": "01"
+    },
+    {
+     "inputs": "05",
+     "outputs": "02"
+    },
+    {
+     "inputs": "06",
+     "outputs": "02"
+    },
+    {
+     "inputs": "07",
+     "outputs": "03"
+    },
+    {
+     "inputs": "08",
+     "outputs": "01"
+    },
+    {
+     "inputs": "09",
+     "outputs": "02"
+    },
+    {
+     "inputs": "0a",
+     "outputs": "02"
+    },
+    {
+     "inputs": "0b",
+     "outputs": "03"
+    },
+    {
+     "inputs": "0c",
+     "outputs": "02"
+    },
+    {
+     "inputs": "0d",
+     "outputs": "03"
+    },
+    {
+     "inputs": "0e",
+     "outputs": "03"
+    },
+    {
+     "inputs": "0f",
+     "outputs": "04"
+    },
+    {
+     "inputs": "10",
+     "outputs": "01"
+    },
+    {
+     "inputs": "11",
+     "outputs": "02"
+    },
+    {
+     "inputs": "12",
+     "outputs": "02"
+    },
+    {
+     "inputs": "13",
+     "outputs": "03"
+    },
+    {
+     "inputs": "14",
+     "outputs": "02"
+    },
+    {
+     "inputs": "15",
+     "outputs": "03"
+    },
+    {
+     "inputs": "16",
+     "outputs": "03"
+    },
+    {
+     "inputs": "17",
+     "outputs": "04"
+    },
+    {
+     "inputs": "18",
+     "outputs": "02"
+    },
+    {
+     "inputs": "19",
+     "outputs": "03"
+    },
+    {
+     "inputs": "1a",
+     "outputs": "03"
+    },
+    {
+     "inputs": "1b",
+     "outputs": "04"
+    },
+    {
+     "inputs": "1c",
+     "outputs": "03"
+    },
+    {
+     "inputs": "1d",
+     "outputs": "04"
+    },
+    {
+     "inputs": "1e",
+     "outputs": "04"
+    },
+    {
+     "inputs": "1f",
+     "outputs": "05"
+    },
+    {
+     "inputs": "20",
+     "outputs": "01"
+    },
+    {
+     "inputs": "21",
+     "outputs": "02"
+    },
+    {
+     "inputs": "22",
+     "outputs": "02"
+    },
+    {
+     "inputs": "23",
+     "outputs": "03"
+    },
+    {
+     "inputs": "24",
+     "outputs": "02"
+    },
+    {
+     "inputs": "25",
+     "outputs": "03"
+    },
+    {
+     "inputs": "26",
+     "outputs": "03"
+    },
+    {
+     "inputs": "27",
+     "outputs": "04"
+    },
+    {
+     "inputs": "28",
+     "outputs": "02"
+    },
+    {
+     "inputs": "29",
+     "outputs": "03"
+    },
+    {
+     "inputs": "2a",
+     "outputs": "03"
+    },
+    {
+     "inputs": "2b",
+     "outputs": "04"
+    },
+    {
+     "inputs": "2c",
+     "outputs": "03"
+    },
+    {
+     "inputs": "2d",
+     "outputs": "04"
+    },
+    {
+     "inputs": "2e",
+     "outputs": "04"
+    },
+    {
+     "inputs": "2f",
+     "outputs": "05"
+    },
+    {
+     "inputs": "30",
+     "outputs": "02"
+    },
+    {
+     "inputs": "31",
+     "outputs": "03"
+    },
+    {
+     "inputs": "32",
+     "outputs": "03"
+    },
+    {
+     "inputs": "33",
+     "outputs": "04"
+    },
+    {
+     "inputs": "34",
+     "outputs": "03"
+    },
+    {
+     "inputs": "35",
+     "outputs": "04"
+    },
+    {
+     "inputs": "36",
+     "outputs": "04"
+    },
+    {
+     "inputs": "37",
+     "outputs": "05"
+    },
+    {
+     "inputs": "38",
+     "outputs": "03"
+    },
+    {
+     "inputs": "39",
+     "outputs": "04"
+    },
+    {
+     "inputs": "3a",
+     "outputs": "04"
+    },
+    {
+     "inputs": "3b",
+     "outputs": "05"
+    },
+    {
+     "inputs": "3c",
+     "outputs": "04"
+    },
+    {
+     "inputs": "3d",
+     "outputs": "05"
+    },
+    {
+     "inputs": "3e",
+     "outputs": "05"
+    },
+    {
+     "inputs": "3f",
+     "outputs": "06"
+    },
+    {
+     "inputs": "40",
+     "outputs": "01"
+    },
+    {
+     "inputs": "41",
+     "outputs": "02"
+    },
+    {
+     "inputs": "42",
+     "outputs": "02"
+    },
+    {
+     "inputs": "43",
+     "outputs": "03"
+    },
+    {
+     "inputs": "44",
+     "outputs": "02"
+    },
+    {
+     "inputs": "45",
+     "outputs": "03"
+    },
+    {
+     "inputs": "46",
+     "outputs": "03"
+    },
+    {
+     "inputs": "47",
+     "outputs": "04"
+    },
+    {
+     "inputs": "48",
+     "outputs": "02"
+    },
+    {
+     "inputs": "49",
+     "outputs": "03"
+    },
+    {
+     "inputs": "4a",
+     "outputs": "03"
+    },
+    {
+     "inputs": "4b",
+     "outputs": "04"
+    },
+    {
+     "inputs": "4c",
+     "outputs": "03"
+    },
+    {
+     "inputs": "4d",
+     "outputs": "04"
+    },
+    {
+     "inputs": "4e",
+     "outputs": "04"
+    },
+    {
+     "inputs": "4f",
+     "outputs": "05"
+    },
+    {
+     "inputs": "50",
+     "outputs": "02"
+    },
+    {
+     "inputs": "51",
+     "outputs": "03"
+    },
+    {
+     "inputs": "52",
+     "outputs": "03"
+    },
+    {
+     "inputs": "53",
+     "outputs": "04"
+    },
+    {
+     "inputs": "54",
+     "outputs": "03"
+    },
+    {
+     "inputs": "55",
+     "outputs": "04"
+    },
+    {
+     "inputs": "56",
+     "outputs": "04"
+    },
+    {
+     "inputs": "57",
+     "outputs": "05"
+    },
+    {
+     "inputs": "58",
+     "outputs": "03"
+    },
+    {
+     "inputs": "59",
+     "outputs": "04"
+    },
+    {
+     "inputs": "5a",
+     "outputs": "04"
+    },
+    {
+     "inputs": "5b",
+     "outputs": "05"
+    },
+    {
+     "inputs": "5c",
+     "outputs": "04"
+    },
+    {
+     "inputs": "5d",
+     "outputs": "05"
+    },
+    {
+     "inputs": "5e",
+     "outputs": "05"
+    },
+    {
+     "inputs": "5f",
+     "outputs": "06"
+    },
+    {
+     "inputs": "60",
+     "outputs": "02"
+    },
+    {
+     "inputs": "61",
+     "outputs": "03"
+    },
+    {
+     "inputs": "62",
+     "outputs": "03"
+    },
+    {
+     "inputs": "63",
+     "outputs": "04"
+    },
+    {
+     "inputs": "64",
+     "outputs": "03"
+    },
+    {
+     "inputs": "65",
+     "outputs": "04"
+    },
+    {
+     "inputs": "66",
+     "outputs": "04"
+    },
+    {
+     "inputs": "67",
+     "outputs": "05"
+    },
+    {
+     "inputs": "68",
+     "outputs": "03"
+    },
+    {
+     "inputs": "69",
+     "outputs": "04"
+    },
+    {
+     "inputs": "6a",
+     "outputs": "04"
+    },
+    {
+     "inputs": "6b",
+     "outputs": "05"
+    },
+    {
+     "inputs": "6c",
+     "outputs": "04"
+    },
+    {
+     "inputs": "6d",
+     "outputs": "05"
+    },
+    {
+     "inputs": "6e",
+     "outputs": "05"
+    },
+    {
+     "inputs": "6f",
+     "outputs": "06"
+    },
+    {
+     "inputs": "70",
+     "outputs": "03"
+    },
+    {
+     "inputs": "71",
+     "outputs": "04"
+    },
+    {
+     "inputs": "72",
+     "outputs": "04"
+    },
+    {
+     "inputs": "73",
+     "outputs": "05"
+    },
+    {
+     "inputs": "74",
+     "outputs": "04"
+    },
+    {
+     "inputs": "75",
+     "outputs": "05"
+    },
+    {
+     "inputs": "76",
+     "outputs": "05"
+    },
+    {
+     "inputs": "77",
+     "outputs": "06"
+    },
+    {
+     "inputs": "78",
+     "outputs": "04"
+    },
+    {
+     "inputs": "79",
+     "outputs": "05"
+    },
+    {
+     "inputs": "7a",
+     "outputs": "05"
+    },
+    {
+     "inputs": "7b",
+     "outputs": "06"
+    },
+    {
+     "inputs": "7c",
+     "outputs": "05"
+    },
+    {
+     "inputs": "7d",
+     "outputs": "06"
+    },
+    {
+     "inputs": "7e",
+     "outputs": "06"
+    },
+    {
+     "inputs": "7f",
+     "outputs": "07"
+    },
+    {
+     "inputs": "80",
+     "outputs": "01"
+    },
+    {
+     "inputs": "81",
+     "outputs": "02"
+    },
+    {
+     "inputs": "82",
+     "outputs": "02"
+    },
+    {
+     "inputs": "83",
+     "outputs": "03"
+    },
+    {
+     "inputs": "84",
+     "outputs": "02"
+    },
+    {
+     "inputs": "85",
+     "outputs": "03"
+    },
+    {
+     "inputs": "86",
+     "outputs": "03"
+    },
+    {
+     "inputs": "87",
+     "outputs": "04"
+    },
+    {
+     "inputs": "88",
+     "outputs": "02"
+    },
+    {
+     "inputs": "89",
+     "outputs": "03"
+    },
+    {
+     "inputs": "8a",
+     "outputs": "03"
+    },
+    {
+     "inputs": "8b",
+     "outputs": "04"
+    },
+    {
+     "inputs": "8c",
+     "outputs": "03"
+    },
+    {
+     "inputs": "8d",
+     "outputs": "04"
+    },
+    {
+     "inputs": "8e",
+     "outputs": "04"
+    },
+    {
+     "inputs": "8f",
+     "outputs": "05"
+    },
+    {
+     "inputs": "90",
+     "outputs": "02"
+    },
+    {
+     "inputs": "91",
+     "outputs": "03"
+    },
+    {
+     "inputs": "92",
+     "outputs": "03"
+    },
+    {
+     "inputs": "93",
+     "outputs": "04"
+    },
+    {
+     "inputs": "94",
+     "outputs": "03"
+    },
+    {
+     "inputs": "95",
+     "outputs": "04"
+    },
+    {
+     "inputs": "96",
+     "outputs": "04"
+    },
+    {
+     "inputs": "97",
+     "outputs": "05"
+    },
+    {
+     "inputs": "98",
+     "outputs": "03"
+    },
+    {
+     "inputs": "99",
+     "outputs": "04"
+    },
+    {
+     "inputs": "9a",
+     "outputs": "04"
+    },
+    {
+     "inputs": "9b",
+     "outputs": "05"
+    },
+    {
+     "inputs": "9c",
+     "outputs": "04"
+    },
+    {
+     "inputs": "9d",
+     "outputs": "05"
+    },
+    {
+     "inputs": "9e",
+     "outputs": "05"
+    },
+    {
+     "inputs": "9f",
+     "outputs": "06"
+    },
+    {
+     "inputs": "a0",
+     "outputs": "02"
+    },
+    {
+     "inputs": "a1",
+     "outputs": "03"
+    },
+    {
+     "inputs": "a2",
+     "outputs": "03"
+    },
+    {
+     "inputs": "a3",
+     "outputs": "04"
+    },
+    {
+     "inputs": "a4",
+     "outputs": "03"
+    },
+    {
+     "inputs": "a5",
+     "outputs": "04"
+    },
+    {
+     "inputs": "a6",
+     "outputs": "04"
+    },
+    {
+     "inputs": "a7",
+     "outputs": "05"
+    },
+    {
+     "inputs": "a8",
+     "outputs": "03"
+    },
+    {
+     "inputs": "a9",
+     "outputs": "04"
+    },
+    {
+     "inputs": "aa",
+     "outputs": "04"
+    },
+    {
+     "inputs": "ab",
+     "outputs": "05"
+    },
+    {
+     "inputs": "ac",
+     "outputs": "04"
+    },
+    {
+     "inputs": "ad",
+     "outputs": "05"
+    },
+    {
+     "inputs": "ae",
+     "outputs": "05"
+    },
+    {
+     "inputs": "af",
+     "outputs": "06"
+    },
+    {
+     "inputs": "b0",
+     "outputs": "03"
+    },
+    {
+     "inputs": "b1",
+     "outputs": "04"
+    },
+    {
+     "inputs": "b2",
+     "outputs": "04"
+    },
+    {
+     "inputs": "b3",
+     "outputs": "05"
+    },
+    {
+     "inputs": "b4",
+     "outputs": "04"
+    },
+    {
+     "inputs": "b5",
+     "outputs": "05"
+    },
+    {
+     "inputs": "b6",
+     "outputs": "05"
+    },
+    {
+     "inputs": "b7",
+     "outputs": "06"
+    },
+    {
+     "inputs": "b8",
+     "outputs": "04"
+    },
+    {
+     "inputs": "b9",
+     "outputs": "05"
+    },
+    {
+     "inputs": "ba",
+     "outputs": "05"
+    },
+    {
+     "inputs": "bb",
+     "outputs": "06"
+    },
+    {
+     "inputs": "bc",
+     "outputs": "05"
+    },
+    {
+     "inputs": "bd",
+     "outputs": "06"
+    },
+    {
+     "inputs": "be",
+     "outputs": "06"
+    },
+    {
+     "inputs": "bf",
+     "outputs": "07"
+    },
+    {
+     "inputs": "c0",
+     "outputs": "02"
+    },
+    {
+     "inputs": "c1",
+     "outputs": "03"
+    },
+    {
+     "inputs": "c2",
+     "outputs": "03"
+    },
+    {
+     "inputs": "c3",
+     "outputs": "04"
+    },
+    {
+     "inputs": "c4",
+     "outputs": "03"
+    },
+    {
+     "inputs": "c5",
+     "outputs": "04"
+    },
+    {
+     "inputs": "c6",
+     "outputs": "04"
+    },
+    {
+     "inputs": "c7",
+     "outputs": "05"
+    },
+    {
+     "inputs": "c8",
+     "outputs": "03"
+    },
+    {
+     "inputs": "c9",
+     "outputs": "04"
+    },
+    {
+     "inputs": "ca",
+     "outputs": "04"
+    },
+    {
+     "inputs": "cb",
+     "outputs": "05"
+    },
+    {
+     "inputs": "cc",
+     "outputs": "04"
+    },
+    {
+     "inputs": "cd",
+     "outputs": "05"
+    },
+    {
+     "inputs": "ce",
+     "outputs": "05"
+    },
+    {
+     "inputs": "cf",
+     "outputs": "06"
+    },
+    {
+     "inputs": "d0",
+     "outputs": "03"
+    },
+    {
+     "inputs": "d1",
+     "outputs": "04"
+    },
+    {
+     "inputs": "d2",
+     "outputs": "04"
+    },
+    {
+     "inputs": "d3",
+     "outputs": "05"
+    },
+    {
+     "inputs": "d4",
+     "outputs": "04"
+    },
+    {
+     "inputs": "d5",
+     "outputs": "05"
+    },
+    {
+     "inputs": "d6",
+     "outputs": "05"
+    },
+    {
+     "inputs": "d7",
+     "outputs": "06"
+    },
+    {
+     "inputs": "d8",
+     "outputs": "04"
+    },
+    {
+     "inputs": "d9",
+     "outputs": "05"
+    },
+    {
+     "inputs": "da",
+     "outputs": "05"
+    },
+    {
+     "inputs": "db",
+     "outputs": "06"
+    },
+    {
+     "inputs": "dc",
+     "outputs": "05"
+    },
+    {
+     "inputs": "dd",
+     "outputs": "06"
+    },
+    {
+     "inputs": "de",
+     "outputs": "06"
+    },
+    {
+     "inputs": "df",
+     "outputs": "07"
+    },
+    {
+     "inputs": "e0",
+     "outputs": "03"
+    },
+    {
+     "inputs": "e1",
+     "outputs": "04"
+    },
+    {
+     "inputs": "e2",
+     "outputs": "04"
+    },
+    {
+     "inputs": "e3",
+     "outputs": "05"
+    },
+    {
+     "inputs": "e4",
+     "outputs": "04"
+    },
+    {
+     "inputs": "e5",
+     "outputs": "05"
+    },
+    {
+     "inputs": "e6",
+     "outputs": "05"
+    },
+    {
+     "inputs": "e7",
+     "outputs": "06"
+    },
+    {
+     "inputs": "e8",
+     "outputs": "04"
+    },
+    {
+     "inputs": "e9",
+     "outputs": "05"
+    },
+    {
+     "inputs": "ea",
+     "outputs": "05"
+    },
+    {
+     "inputs": "eb",
+     "outputs": "06"
+    },
+    {
+     "inputs": "ec",
+     "outputs": "05"
+    },
+    {
+     "inputs": "ed",
+     "outputs": "06"
+    },
+    {
+     "inputs": "ee",
+     "outputs": "06"
+    },
+    {
+     "inputs": "ef",
+     "outputs": "07"
+    },
+    {
+     "inputs": "f0",
+     "outputs": "04"
+    },
+    {
+     "inputs": "f1",
+     "outputs": "05"
+    },
+    {
+     "inputs": "f2",
+     "outputs": "05"
+    },
+    {
+     "inputs": "f3",
+     "outputs": "06"
+    },
+    {
+     "inputs": "f4",
+     "outputs": "05"
+    },
+    {
+     "inputs": "f5",
+     "outputs": "06"
+    },
+    {
+     "inputs": "f6",
+     "outputs": "06"
+    },
+    {
+     "inputs": "f7",
+     "outputs": "07"
+    },
+    {
+     "inputs": "f8",
+     "outputs": "05"
+    },
+    {
+     "inputs": "f9",
+     "outputs": "06"
+    },
+    {
+     "inputs": "fa",
+     "outputs": "06"
+    },
+    {
+     "inputs": "fb",
+     "outputs": "07"
+    },
+    {
+     "inputs": "fc",
+     "outputs": "06"
+    },
+    {
+     "inputs": "fd",
+     "outputs": "07"
+    },
+    {
+     "inputs": "fe",
+     "outputs": "07"
+    },
+    {
+     "inputs": "ff",
+     "outputs": "08"
+    }
+   ]
+  },
+  {
+   "beats": [
+    {
+     "inputs": "01",
+     "newState": "01",
+     "outputs": "01",
+     "state": "00"
+    },
+    {
+     "inputs": "01",
+     "newState": "00",
+     "outputs": "00",
+     "state": "01"
+    },
+    {
+     "inputs": "00",
+     "newState": "00",
+     "outputs": "00",
+     "state": "00"
+    },
+    {
+     "inputs": "01",
+     "newState": "01",
+     "outputs": "01",
+     "state": "00"
+    },
+    {
+     "inputs": "00",
+     "newState": "01",
+     "outputs": "01",
+     "state": "01"
+    },
+    {
+     "inputs": "00",
+     "newState": "01",
+     "outputs": "01",
+     "state": "01"
+    },
+    {
+     "inputs": "01",
+     "newState": "00",
+     "outputs": "00",
+     "state": "01"
+    },
+    {
+     "inputs": "01",
+     "newState": "01",
+     "outputs": "01",
+     "state": "00"
+    }
+   ],
+   "nIn": 1,
+   "nOut": 1,
+   "nState": 1,
+   "name": "toggle",
+   "netlist": "0x0100000700000003000002000000030000040000000200000400000005000006",
+   "note": "LATCH whose d refers forward: q' = q XOR en; output is q XOR en",
+   "refs": [],
+   "source": "constructed"
+  },
+  {
+   "beats": [
+    {
+     "inputs": "01",
+     "newState": "03",
+     "outputs": "01",
+     "state": "00"
+    },
+    {
+     "inputs": "01",
+     "newState": "00",
+     "outputs": "01",
+     "state": "03"
+    },
+    {
+     "inputs": "00",
+     "newState": "00",
+     "outputs": "01",
+     "state": "00"
+    },
+    {
+     "inputs": "01",
+     "newState": "03",
+     "outputs": "01",
+     "state": "00"
+    },
+    {
+     "inputs": "00",
+     "newState": "03",
+     "outputs": "00",
+     "state": "03"
+    },
+    {
+     "inputs": "00",
+     "newState": "03",
+     "outputs": "00",
+     "state": "03"
+    },
+    {
+     "inputs": "01",
+     "newState": "00",
+     "outputs": "01",
+     "state": "03"
+    },
+    {
+     "inputs": "01",
+     "newState": "03",
+     "outputs": "01",
+     "state": "00"
+    }
+   ],
+   "nIn": 1,
+   "nOut": 1,
+   "nState": 2,
+   "name": "ref_with_state",
+   "netlist": "0x010000040200000000000000000000000000000000000000aa0000000000000001010100000200000003000004",
+   "note": "LATCH (state bit 0, d = signal 4) then REF to the toggle circuit (state bit 1) then NAND(3, 4); pins state order and REF semantics",
+   "refs": [
+    {
+     "cpu": "0x00000000000000000000000000000000000000aa",
+     "id": 1,
+     "nIn": 1,
+     "nOut": 1,
+     "netlist": "0x0100000700000003000002000000030000040000000200000400000005000006"
+    }
+   ],
+   "source": "constructed"
+  }
+ ]
+}

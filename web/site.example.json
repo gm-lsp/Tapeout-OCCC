@@ -1,0 +1,7 @@
+{
+ "manifest": "manifest.json",
+ "registry": "0x… (the CuratedRegistry address; the page trusts only this one)",
+ "circuits": "0x… (the CIRCUITS address printed by script/Launch.s.sol)",
+ "rpc": "https://bsc-dataseed.bnbchain.org",
+ "chainId": 56
+}

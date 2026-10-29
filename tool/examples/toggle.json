@@ -1,0 +1,149 @@
+{
+ "format": "tapeout-canvas",
+ "v": 1,
+ "name": "Toggle",
+ "nodes": [
+  {
+   "id": "i1",
+   "type": "input",
+   "position": {
+    "x": 0,
+    "y": 0
+   },
+   "data": {
+    "index": 0,
+    "value": 0,
+    "label": ""
+   }
+  },
+  {
+   "id": "l2",
+   "type": "latch",
+   "position": {
+    "x": 0,
+    "y": 0
+   },
+   "data": {}
+  },
+  {
+   "id": "n3",
+   "type": "nand",
+   "position": {
+    "x": 0,
+    "y": 0
+   },
+   "data": {}
+  },
+  {
+   "id": "n6",
+   "type": "nand",
+   "position": {
+    "x": 0,
+    "y": 0
+   },
+   "data": {}
+  },
+  {
+   "id": "n9",
+   "type": "nand",
+   "position": {
+    "x": 0,
+    "y": 0
+   },
+   "data": {}
+  },
+  {
+   "id": "n12",
+   "type": "nand",
+   "position": {
+    "x": 0,
+    "y": 0
+   },
+   "data": {}
+  },
+  {
+   "id": "o16",
+   "type": "output",
+   "position": {
+    "x": 0,
+    "y": 0
+   },
+   "data": {
+    "index": 0,
+    "label": ""
+   }
+  }
+ ],
+ "edges": [
+  {
+   "id": "e4",
+   "source": "l2",
+   "sourceHandle": "out",
+   "target": "n3",
+   "targetHandle": "a"
+  },
+  {
+   "id": "e5",
+   "source": "i1",
+   "sourceHandle": "out",
+   "target": "n3",
+   "targetHandle": "b"
+  },
+  {
+   "id": "e7",
+   "source": "l2",
+   "sourceHandle": "out",
+   "target": "n6",
+   "targetHandle": "a"
+  },
+  {
+   "id": "e8",
+   "source": "n3",
+   "sourceHandle": "out",
+   "target": "n6",
+   "targetHandle": "b"
+  },
+  {
+   "id": "e10",
+   "source": "i1",
+   "sourceHandle": "out",
+   "target": "n9",
+   "targetHandle": "a"
+  },
+  {
+   "id": "e11",
+   "source": "n3",
+   "sourceHandle": "out",
+   "target": "n9",
+   "targetHandle": "b"
+  },
+  {
+   "id": "e13",
+   "source": "n6",
+   "sourceHandle": "out",
+   "target": "n12",
+   "targetHandle": "a"
+  },
+  {
+   "id": "e14",
+   "source": "n9",
+   "sourceHandle": "out",
+   "target": "n12",
+   "targetHandle": "b"
+  },
+  {
+   "id": "e15",
+   "source": "n12",
+   "sourceHandle": "out",
+   "target": "l2",
+   "targetHandle": "d"
+  },
+  {
+   "id": "e17",
+   "source": "l2",
+   "sourceHandle": "out",
+   "target": "o16",
+   "targetHandle": "in"
+  }
+ ]
+}

@@ -1,0 +1,100 @@
+{
+ "format": "tapeout-canvas",
+ "v": 1,
+ "name": "AND",
+ "nodes": [
+  {
+   "id": "i1",
+   "type": "input",
+   "position": {
+    "x": 0,
+    "y": 0
+   },
+   "data": {
+    "index": 0,
+    "value": 0,
+    "label": ""
+   }
+  },
+  {
+   "id": "i2",
+   "type": "input",
+   "position": {
+    "x": 0,
+    "y": 0
+   },
+   "data": {
+    "index": 1,
+    "value": 0,
+    "label": ""
+   }
+  },
+  {
+   "id": "n3",
+   "type": "nand",
+   "position": {
+    "x": 0,
+    "y": 0
+   },
+   "data": {}
+  },
+  {
+   "id": "n6",
+   "type": "nand",
+   "position": {
+    "x": 0,
+    "y": 0
+   },
+   "data": {}
+  },
+  {
+   "id": "o9",
+   "type": "output",
+   "position": {
+    "x": 0,
+    "y": 0
+   },
+   "data": {
+    "index": 0,
+    "label": ""
+   }
+  }
+ ],
+ "edges": [
+  {
+   "id": "e4",
+   "source": "i1",
+   "sourceHandle": "out",
+   "target": "n3",
+   "targetHandle": "a"
+  },
+  {
+   "id": "e5",
+   "source": "i2",
+   "sourceHandle": "out",
+   "target": "n3",
+   "targetHandle": "b"
+  },
+  {
+   "id": "e7",
+   "source": "n3",
+   "sourceHandle": "out",
+   "target": "n6",
+   "targetHandle": "a"
+  },
+  {
+   "id": "e8",
+   "source": "n3",
+   "sourceHandle": "out",
+   "target": "n6",
+   "targetHandle": "b"
+  },
+  {
+   "id": "e10",
+   "source": "n6",
+   "sourceHandle": "out",
+   "target": "o9",
+   "targetHandle": "in"
+  }
+ ]
+}

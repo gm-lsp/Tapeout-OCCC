@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>官方策展电路集合 · 发售与验真</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Noto+Sans+SC:wght@400;500;700&display=swap">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' https://cdnjs.cloudflare.com/ajax/libs/ethers/6.13.4/ethers.umd.min.js; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self' https: http://127.0.0.1:* http://localhost:*; base-uri 'none'; form-action 'none'; object-src 'none'">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.13.4/ethers.umd.min.js" integrity="sha384-6Zl0Pc8zjSz8KvmNeXRvUQgY4ryFb+BwDvKCmLYcBME0joAaru491tQgi9B7zsMM" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+<style>
+:root {
+  --paper: #E8EDF1;
+  --sheet: #F5F7F9;
+  --ink: #1C2B3A;
+  --ink-soft: #4A5A6A;
+  --rule: #C9D3DC;
+  --gold: #B08A2E;
+  --gold-deep: #7A5E17;
+  --teal: #2D6B6E;
+  --teal-bg: #DCECEC;
+  --brick: #A33A30;
+  --brick-bg: #F4E1DE;
+  --sans: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: var(--paper); color: var(--ink); font: 16px/1.65 var(--sans); }
+a { color: var(--teal); }
+button { font: inherit; cursor: pointer; }
+:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
+.mono { font-family: var(--mono); font-size: 0.92em; }
+.wrap { max-width: 1120px; margin: 0 auto; padding: 0 24px; }
+
+header.top { border-bottom: 1px solid var(--rule); background: var(--sheet); }
+header.top .wrap { display: flex; align-items: center; gap: 16px; padding-top: 14px; padding-bottom: 14px; flex-wrap: wrap; }
+.brand { font-weight: 700; font-size: 18px; }
+.brand small { display: block; font-weight: 400; font-size: 13px; color: var(--ink-soft); }
+.spacer { flex: 1; }
+.btn { border: 1.5px solid var(--ink); background: var(--ink); color: var(--sheet); padding: 8px 18px; border-radius: 6px; font-weight: 500; }
+.btn:hover { background: #2C4157; }
+.btn.ghost { background: transparent; color: var(--ink); }
+.btn.ghost:hover { background: var(--sheet); }
+.btn.gold { background: var(--gold); border-color: var(--gold); color: #fff; }
+.btn.gold:hover { background: var(--gold-deep); border-color: var(--gold-deep); }
+.btn[disabled] { opacity: .45; cursor: not-allowed; }
+.acct { font-family: var(--mono); font-size: 14px; color: var(--ink-soft); }
+
+nav.tabs { display: flex; gap: 4px; margin-top: 28px; border-bottom: 1px solid var(--rule); }
+nav.tabs button { background: none; border: none; border-bottom: 3px solid transparent; padding: 10px 18px; font-size: 17px; color: var(--ink-soft); }
+nav.tabs button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--gold); font-weight: 700; }
+
+.hero { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 40px; padding: 36px 0 28px; align-items: start; }
+.hero h1 { font-size: 40px; line-height: 1.2; margin: 0 0 6px; letter-spacing: .5px; }
+.hero .story { color: var(--ink-soft); margin: 0 0 22px; max-width: 34em; }
+
+/* the wafer: one die per work */
+.wafer { background: var(--sheet); border: 1px solid var(--rule); border-radius: 50% / 10%; padding: 26px; }
+.dies { display: grid; grid-template-columns: repeat(auto-fill, minmax(var(--die, 44px), 1fr)); gap: 6px; }
+.die { aspect-ratio: 1; border-radius: 3px; border: 2px solid var(--gold); background: transparent; position: relative; padding: 0; }
+.die.sold { background: var(--ink); border-color: var(--ink); }
+.die.reserved { border-color: var(--teal); background: repeating-linear-gradient(45deg, var(--teal-bg) 0 4px, transparent 4px 8px); }
+.die.reserved.claimed { background: var(--teal); }
+.die.active { outline: 3px solid var(--gold); outline-offset: 2px; }
+.die span { position: absolute; inset: auto 0 2px 0; font: 11px var(--mono); color: var(--gold-deep); text-align: center; }
+.die.sold span, .die.reserved.claimed span { color: #E8EDF1; }
+.legend { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 16px; font-size: 14px; color: var(--ink-soft); }
+.legend i { display: inline-block; width: 14px; height: 14px; border-radius: 2px; vertical-align: -2px; margin-right: 6px; border: 2px solid var(--gold); }
+.legend i.s { background: var(--ink); border-color: var(--ink); }
+.legend i.r { border-color: var(--teal); background: repeating-linear-gradient(45deg, var(--teal-bg) 0 3px, transparent 3px 6px); }
+
+.panel { background: var(--sheet); border: 1px solid var(--rule); border-radius: 10px; padding: 22px 24px; }
+.phase { font-size: 22px; font-weight: 700; margin: 0 0 2px; }
+.phase-note { color: var(--ink-soft); margin: 0 0 16px; }
+dl.facts { display: grid; grid-template-columns: auto 1fr; gap: 6px 18px; margin: 0; }
+dl.facts dt { color: var(--ink-soft); }
+dl.facts dd { margin: 0; }
+.you { margin-top: 18px; padding-top: 16px; border-top: 1px dashed var(--rule); }
+.you p { margin: 4px 0; }
+
+table.works { width: 100%; border-collapse: collapse; background: var(--sheet); border: 1px solid var(--rule); border-radius: 10px; overflow: hidden; }
+table.works th, table.works td { padding: 12px 16px; text-align: left; border-bottom: 1px solid var(--rule); vertical-align: middle; }
+table.works th { font-weight: 500; color: var(--ink-soft); font-size: 14px; background: #EEF2F5; }
+table.works tr:last-child td { border-bottom: none; }
+table.works tr.active td { background: #FBF6E7; }
+.status { font-size: 14px; }
+.status.ok { color: var(--teal); }
+.status.res { color: var(--teal); }
+.status.sold { color: var(--ink-soft); }
+td.act { text-align: right; white-space: nowrap; }
+h2.sec { font-size: 22px; margin: 34px 0 14px; }
+
+.verify { padding: 36px 0; max-width: 760px; }
+.verify h1 { font-size: 34px; margin: 0 0 8px; }
+.verify p.lead { color: var(--ink-soft); margin: 0 0 22px; }
+form.q { display: flex; gap: 10px; }
+form.q input { flex: 1; font: 18px var(--mono); padding: 12px 14px; border: 1.5px solid var(--ink); border-radius: 6px; background: #fff; color: var(--ink); min-width: 0; }
+.verdict { margin-top: 24px; border-radius: 10px; padding: 22px 24px; border: 2px solid; }
+.verdict.yes { border-color: var(--teal); background: var(--teal-bg); }
+.verdict.no { border-color: var(--brick); background: var(--brick-bg); }
+.verdict.none, .verdict.wait { border-color: var(--rule); background: var(--sheet); }
+.verdict h3 { margin: 0 0 6px; font-size: 24px; }
+.verdict.yes h3 { color: var(--teal); }
+.verdict.no h3 { color: var(--brick); }
+.verdict p { margin: 4px 0; }
+
+.toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: var(--ink); color: var(--sheet); padding: 12px 20px; border-radius: 8px; max-width: min(92vw, 640px); box-shadow: 0 6px 24px rgba(28,43,58,.25); }
+.toast.err { background: var(--brick); }
+.banner { margin-top: 20px; padding: 14px 18px; border-radius: 8px; background: var(--brick-bg); color: var(--brick); border: 1px solid var(--brick); }
+footer { color: var(--ink-soft); font-size: 14px; padding: 40px 0 48px; }
+[hidden] { display: none !important; }
+
+@media (max-width: 820px) {
+  .hero { grid-template-columns: 1fr; gap: 24px; }
+  .hero h1 { font-size: 30px; }
+  table.works, table.works tbody { display: block; }
+  table.works thead { display: none; }
+  table.works tr { display: grid; grid-template-columns: 2.4em minmax(0, 1fr) auto;
+    grid-template-areas: "n t a" "n p a" "n s a"; align-items: center; border-bottom: 1px solid var(--rule); padding: 12px 14px; }
+  table.works tr:last-child { border-bottom: none; }
+  table.works td { border: none; padding: 1px 4px; }
+  table.works td:nth-child(1) { grid-area: n; align-self: start; padding-top: 3px; }
+  table.works td:nth-child(2) { grid-area: t; font-weight: 500; }
+  table.works td:nth-child(3) { display: none; }
+  table.works td:nth-child(4) { grid-area: p; color: var(--ink-soft); font-size: 14px; }
+  table.works td:nth-child(5) { grid-area: s; }
+  table.works td:nth-child(6) { grid-area: a; padding-left: 10px; }
+  form.q { flex-direction: column; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .die { transition: background-color .25s, border-color .25s; }
+}
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="wrap">
+    <div class="brand"><span id="c-name">官方策展电路集合</span><small>TapeOut 策展集合，每件官方作品都能在链上验证</small></div>
+    <div class="spacer"></div>
+    <span class="acct" id="acct" hidden></span>
+    <button class="btn" id="connect">连接钱包</button>
+  </div>
+</header>
+
+<main class="wrap">
+  <div class="banner" id="load-error" role="alert" hidden></div>
+
+  <nav class="tabs" role="tablist">
+    <button role="tab" id="tab-buy" aria-selected="true" aria-controls="view-buy">购买</button>
+    <button role="tab" id="tab-verify" aria-selected="false" aria-controls="view-verify">验真</button>
+  </nav>
+
+  <section id="view-buy" role="tabpanel" aria-labelledby="tab-buy">
+    <div class="hero">
+      <div>
+        <h1 id="c-title">加载中…</h1>
+        <p class="story" id="c-story"></p>
+        <div class="wafer" aria-label="作品分布：每一格是一件作品">
+          <div class="dies" id="dies"></div>
+          <div class="legend">
+            <span><i></i>可购买</span><span><i class="s"></i>已售出</span><span><i class="r"></i>国库预留</span>
+          </div>
+        </div>
+      </div>
+      <aside class="panel" aria-live="polite">
+        <p class="phase" id="phase">—</p>
+        <p class="phase-note" id="phase-note"></p>
+        <dl class="facts">
+          <dt>已流片</dt><dd id="f-sold">—</dd>
+          <dt>国库预留</dt><dd id="f-res">—</dd>
+          <dt>单钱包限额</dt><dd id="f-limit">—</dd>
+          <dt>二级市场版税</dt><dd id="f-roy">—</dd>
+          <dt>处理器</dt><dd class="mono" id="f-circuits">—</dd>
+        </dl>
+        <div class="you" id="you" hidden>
+          <p id="you-limit"></p>
+          <p id="you-presale"></p>
+        </div>
+      </aside>
+    </div>
+
+    <h2 class="sec">作品清单</h2>
+    <table class="works">
+      <thead><tr><th>编号</th><th>作品</th><th>规格</th><th>价格</th><th>状态</th><th></th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </section>
+
+  <section id="view-verify" class="verify" role="tabpanel" aria-labelledby="tab-verify" hidden>
+    <h1>这个电路是官方作品吗？</h1>
+    <p class="lead">输入本集合里的电路编号，或者“处理器地址:编号”。真伪只看它是不是由本集合的发售合约流片并登记的，不看门数或运行结果，因为这些都可以被复制。</p>
+    <form class="q" id="vform">
+      <label for="vq" class="sr" hidden>电路编号</label>
+      <input id="vq" autocomplete="off" placeholder="例如 12，或 0x…:12" required>
+      <button class="btn gold" type="submit">验真</button>
+    </form>
+    <div id="verdict"></div>
+  </section>
+
+  <footer>
+    规则：每件官方作品只由本集合的发售合约流片一次，并在同一笔交易里登记。作品清单、价格、标题与介绍、国库预留与白名单都在发行时固定，任何人都可以用公开清单核对。
+    <span id="f-reg"></span>
+  </footer>
+</main>
+
+<div class="toast" id="toast" role="status" hidden></div>
+
+<script src="app.js"></script>
+</body>
+</html>
