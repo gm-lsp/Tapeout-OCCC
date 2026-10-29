@@ -18,7 +18,7 @@ const VAULT_ABI = [
   "function SALE_START() view returns (uint64)", "function SALE_END() view returns (uint64)",
   "function PRESALE_START() view returns (uint64)", "function ALLOW_ROOT() view returns (bytes32)",
   "function LIMIT_PER_WALLET() view returns (bool)", "function MAX_PER_WALLET() view returns (uint32)",
-  "function sold() view returns (uint32)", "function finalized() view returns (bool)", "function reservedClaimed() view returns (uint32)",
+  "function sold() view returns (uint32)", "function finalized() view returns (bool)", "function paused() view returns (bool)", "function reservedClaimed() view returns (uint32)",
   "function taken(uint256) view returns (bool)", "function remainingFor(address) view returns (bool,uint32)",
   "function presaleBought(address) view returns (uint32)",
   "function buy(uint256,bytes,uint32,uint32,uint256,bytes32[],address) payable returns (uint256)",
@@ -218,6 +218,8 @@ function phaseOf() {
   if (n >= S.saleEnd) return { key: "ended", title: "发售已结束", note: S.finalized
     ? `结束于 ${when(S.saleEnd)}。已经收尾，未售出的作品永远不会再被流片。`
     : `结束于 ${when(S.saleEnd)}。公开发售已关闭；收尾前，策展人仍可把未领取的预留作品领取进国库。` };
+  if (S.paused && (n >= S.saleStart || (S.hasPresale && n >= S.presaleStart))) return { key: "paused", title: "销售已暂停",
+    note: `策展人暂停了销售，恢复后可以继续购买。销售截止 ${when(S.saleEnd)}。` };
   if (n >= S.saleStart) return { key: "public", title: "公开发售中", note: `任何人都可以购买，截止 ${when(S.saleEnd)}。` };
   if (S.hasPresale && n >= S.presaleStart) return { key: "presale", title: "白名单预售中", note: `只有白名单钱包可以购买，公开发售于 ${when(S.saleStart)} 开始。` };
   if (S.hasPresale) return { key: "soon", title: "即将开始", note: `白名单预售 ${when(S.presaleStart)} 开始，公开发售 ${when(S.saleStart)} 开始。` };
@@ -231,8 +233,10 @@ async function refresh() {
   const takenFlags = await Promise.all(works.map((w) => S.vault.taken(w.index)));
   const tokens = await Promise.all(works.map((w, i) => (takenFlags[i] ? S.reg.tokenOf(S.cfg.circuits, w.index) : null)));
   S.works = works.map((w, i) => ({ ...w, taken: takenFlags[i], tokenId: tokens[i] ? tokens[i][1] : null }));
-  const [sold, rc, fin] = await Promise.all([S.vault.sold(), S.vault.reservedClaimed(), S.vault.finalized()]);
-  S.finalized = fin;
+  // the curator may pause buying or move the sale end later, so both are read on every refresh
+  const [sold, rc, fin, paused, se] = await Promise.all([S.vault.sold(), S.vault.reservedClaimed(), S.vault.finalized(),
+    S.vault.paused(), S.vault.SALE_END()]);
+  S.finalized = fin; S.paused = paused; S.saleEnd = se;
   const ph = phaseOf(); S.phase = ph.key;
   $("phase").textContent = ph.title; $("phase-note").textContent = ph.note;
   $("f-sold").textContent = `${sold} / ${works.length} 件`;

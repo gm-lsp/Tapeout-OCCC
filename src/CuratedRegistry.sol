@@ -38,8 +38,8 @@ contract CuratedRegistry is ICuratedRegistry {
     error RoyaltyCannotRise();
     error BadMetadataURI();
 
-    /// @notice the highest royalty a collection may declare (3 %)
-    uint16 public constant MAX_ROYALTY_BPS = 300;
+    /// @notice the highest royalty a collection may declare (5 %)
+    uint16 public constant MAX_ROYALTY_BPS = 500;
 
     struct Royalty {
         address receiver;

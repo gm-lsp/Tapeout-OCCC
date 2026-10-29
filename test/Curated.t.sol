@@ -944,13 +944,14 @@ contract CuratedForkTest is Test {
         reg.setRoyalty(address(C), address(0), 100);
     }
 
-    /// Launch refuses a rate above 3 % or a receiver without a rate (and the reverse).
+    /// Launch refuses a rate above 5 % or a receiver without a rate (and the reverse); exactly 5 % is accepted.
     function test_Royalty_ParamsChecked() public {
         CuratedVault.LaunchParams memory p = _params();
-        p.royaltyBps = 301;
+        p.royaltyBps = 501;
         vm.prank(curator);
         vm.expectRevert(CuratedRegistry.BadRoyalty.selector);
         reg.launch{value: launchValue}(p);
+        assertEq(reg.MAX_ROYALTY_BPS(), 500);
 
         p = _params();
         p.royaltyBps = 0; // receiver set, no rate
@@ -963,6 +964,12 @@ contract CuratedForkTest is Test {
         vm.prank(curator);
         vm.expectRevert(CuratedRegistry.BadRoyalty.selector);
         reg.launch{value: launchValue}(p);
+
+        p = _params();
+        p.royaltyBps = 500; // the cap itself is allowed
+        _launchWith(p);
+        (, uint16 bps) = reg.royaltyOf(address(C));
+        assertEq(bps, 500);
     }
 
     /// A reserved work is an ordinary circuit NFT once it is in the treasury: the treasury can give it away or
@@ -1141,6 +1148,94 @@ contract CuratedForkTest is Test {
         vm.prank(curator);
         vm.expectRevert(abi.encodeWithSelector(CuratedVault.BadParams.selector, "titlesHash"));
         reg.launch{value: launchValue}(p);
+    }
+
+    // ------------------------------------------------------------------ sale controls
+
+    function test_Sale_CuratorCanPauseAndResume() public {
+        _launch();
+        Work memory w = _work(0);
+        vm.prank(attacker);
+        vm.expectRevert(CuratedVault.OnlyCurator.selector);
+        vault.setPaused(true);
+
+        vm.prank(curator);
+        vm.expectEmit(address(vault));
+        emit CuratedVault.SalePaused(true);
+        vault.setPaused(true);
+        assertTrue(vault.paused());
+        vm.prank(buyer);
+        vm.expectRevert(CuratedVault.SaleIsPaused.selector);
+        vault.buy{value: w.price + fee}(w.index, w.netlist, w.nIn, w.nOut, w.price, w.proof, buyer);
+
+        // reserved claims are not affected by a pause
+        uint256 r = _claim(6);
+        assertTrue(reg.isReserved(address(C), r));
+
+        vm.prank(curator);
+        vault.setPaused(false);
+        uint256 id = _buy(0, buyer);
+        assertEq(C.ownerOf(id), buyer);
+    }
+
+    function test_Sale_PauseAlsoStopsPresale() public {
+        _launchPresale();
+        vm.prank(curator);
+        vault.setPaused(true);
+        Allow memory a = _allow(0);
+        _presaleExpect(a, a.wallet, 0, a.quota, abi.encodeWithSelector(CuratedVault.SaleIsPaused.selector));
+        vm.prank(curator);
+        vault.setPaused(false);
+        uint256 id = _presaleBuy(a, a.wallet, 0, a.quota);
+        assertEq(C.ownerOf(id), a.wallet);
+    }
+
+    function test_Sale_ExtendOnlyLaterWhileOpen() public {
+        _launch();
+        uint64 end = vault.SALE_END();
+        vm.prank(attacker);
+        vm.expectRevert(CuratedVault.OnlyCurator.selector);
+        vault.extendSale(end + 1 days);
+
+        vm.startPrank(curator);
+        vm.expectRevert(CuratedVault.CannotExtend.selector);
+        vault.extendSale(end); // not later
+        vm.expectRevert(CuratedVault.CannotExtend.selector);
+        vault.extendSale(end - 1); // earlier
+        vm.expectEmit(address(vault));
+        emit CuratedVault.SaleEndExtended(end, end + 30 days);
+        vault.extendSale(end + 30 days);
+        vm.stopPrank();
+        assertEq(vault.SALE_END(), end + 30 days);
+        assertEq(vault.SALE_END(), end + 30 days);
+
+        // buying works past the old end, finalize waits for the new one
+        vm.warp(end + 1);
+        uint256 id = _buy(0, buyer);
+        assertEq(C.ownerOf(id), buyer);
+        assertFalse(vault.finalizable());
+
+        // once the (new) end has passed, the sale cannot be reopened
+        vm.warp(uint256(end) + 30 days);
+        vm.prank(curator);
+        vm.expectRevert(CuratedVault.CannotExtend.selector);
+        vault.extendSale(end + 60 days);
+        Work memory w = _work(1);
+        vm.prank(buyer);
+        vm.expectRevert(CuratedVault.SaleEnded.selector);
+        vault.buy{value: w.price + fee}(w.index, w.netlist, w.nIn, w.nOut, w.price, w.proof, buyer);
+    }
+
+    function test_Sale_NoControlsAfterFinalize() public {
+        _launch();
+        vm.warp(uint256(vault.SALE_END()) + vault.RESERVE_GRACE());
+        vault.finalize();
+        vm.startPrank(curator);
+        vm.expectRevert(CuratedVault.AlreadyFinalized.selector);
+        vault.setPaused(true);
+        vm.expectRevert(CuratedVault.CannotExtend.selector);
+        vault.extendSale(type(uint64).max);
+        vm.stopPrank();
     }
 
     // ------------------------------------------------------------------ metadata (images)

@@ -719,8 +719,8 @@ def build(spec_path: str, out_path: str, url: str | None = None) -> dict:
     roy = spec.get("royalty") or {}
     royalty_receiver = _addr(roy.get("receiver", "0x" + "00" * 20))
     royalty_bps = roy.get("bps", 0)
-    if not isinstance(royalty_bps, int) or isinstance(royalty_bps, bool) or not 0 <= royalty_bps <= 300:
-        raise DesignError("royalty.bps must be a whole number from 0 to 300 (300 = 3 %)")
+    if not isinstance(royalty_bps, int) or isinstance(royalty_bps, bool) or not 0 <= royalty_bps <= 500:
+        raise DesignError("royalty.bps must be a whole number from 0 to 500 (500 = 5 %)")
     if (int(royalty_receiver, 16) == 0) != (royalty_bps == 0):
         raise DesignError("royalty needs both a receiver and a rate, or neither")
 
@@ -920,7 +920,6 @@ def checkroot(manifest_path: str, url: str | None = None, registry: str | None =
             ("curator", same_addr(chain["curator"], L["curator"])),
             ("treasury", same_addr(chain["treasury"], L.get("treasury", "0x0"))),
             ("sale start", chain["saleStart"] == int(L["saleStart"])),
-            ("sale end", chain["saleEnd"] == int(L["saleEnd"])),
             ("presale start", chain["presaleStart"] == int(L.get("presaleStart", 0))),
             ("allowlist root", chain["allowRoot"] == L.get("allowRoot", "0x" + "00" * 32).lower()),
             ("per-wallet limit", chain["limitPerWallet"] == bool(L.get("limitPerWallet", False))
@@ -931,6 +930,11 @@ def checkroot(manifest_path: str, url: str | None = None, registry: str | None =
         for name, ok in checks:
             if not ok:
                 problems.append(f"on chain, {name} differs from the manifest")
+        # the curator may move the sale end later (never earlier) and may pause buying
+        chain["paused"] = bool(vget("paused()"))
+        if chain["saleEnd"] < int(L["saleEnd"]):
+            problems.append("on chain, the sale ends earlier than the manifest says")
+        out["saleEndExtendedSinceLaunch"] = chain["saleEnd"] != int(L["saleEnd"])
         # the curator may lower the royalty or change its receiver after launch; it can never rise
         if chain["royaltyBps"] > int(L.get("royaltyBps", 0)):
             problems.append("on chain, the royalty is higher than the manifest declares")

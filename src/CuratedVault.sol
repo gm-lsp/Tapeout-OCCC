@@ -62,7 +62,6 @@ contract CuratedVault is ReentrancyGuard, ICircuitURIProvider {
     bytes32 public immutable ROOT;
     uint32 public immutable COUNT;
     uint64 public immutable SALE_START;
-    uint64 public immutable SALE_END;
     address public immutable TREASURY;
     uint32 public immutable RESERVED_COUNT;
     bool public immutable LIMIT_PER_WALLET;
@@ -74,6 +73,10 @@ contract CuratedVault is ReentrancyGuard, ICircuitURIProvider {
     ITapeOutTransistors public transistors;
     bool public initialized;
     bool public finalized;
+    /// @notice the end of the sale; the curator may move it later (never earlier) while the sale is still open
+    uint64 internal saleEnd;
+    /// @notice true while the curator has paused buying (public sale and presale); reserved claims are unaffected
+    bool public paused;
     uint32 public sold; // all works taped out, public and reserved
     uint32 public reservedClaimed;
 
@@ -88,6 +91,8 @@ contract CuratedVault is ReentrancyGuard, ICircuitURIProvider {
     event ReservedClaimed(uint256 indexed index, uint256 indexed tokenId, address indexed treasury);
     event Withdrawn(address indexed payee, uint256 amount);
     event Finalized(uint256 nandBurned, uint256 latchBurned);
+    event SalePaused(bool paused);
+    event SaleEndExtended(uint64 previousEnd, uint64 newEnd);
 
     error OnlyRegistry();
     error AlreadyInitialized();
@@ -113,6 +118,8 @@ contract CuratedVault is ReentrancyGuard, ICircuitURIProvider {
     error RecipientMustBeBuyer();
     error NoPresale();
     error PresaleNotOpen();
+    error SaleIsPaused();
+    error CannotExtend();
     error NotAllowlisted();
     error PresaleQuotaUsed();
 
@@ -141,7 +148,7 @@ contract CuratedVault is ReentrancyGuard, ICircuitURIProvider {
         ROOT = p.root;
         COUNT = p.count;
         SALE_START = p.saleStart;
-        SALE_END = p.saleEnd;
+        saleEnd = p.saleEnd;
         TREASURY = p.treasury;
         RESERVED_COUNT = p.reservedCount;
         LIMIT_PER_WALLET = p.limitPerWallet;
@@ -303,7 +310,8 @@ contract CuratedVault is ReentrancyGuard, ICircuitURIProvider {
         bytes32[] calldata proof,
         address recipient
     ) internal returns (uint256 tokenId) {
-        if (block.timestamp >= SALE_END) revert SaleEnded();
+        if (block.timestamp >= saleEnd) revert SaleEnded();
+        if (paused) revert SaleIsPaused();
         if (index >= COUNT) revert IndexOutOfRange();
         if (taken[index]) revert AlreadyTaken();
         if (recipient == address(0)) revert ZeroRecipient();
@@ -364,7 +372,7 @@ contract CuratedVault is ReentrancyGuard, ICircuitURIProvider {
         nonReentrant
         returns (uint256 tokenId)
     {
-        if (msg.sender != CURATOR) revert OnlyCurator();
+        _onlyCurator();
         uint256 fee = circuits.TAPEOUT_FEE();
         if (msg.value != fee) revert WrongPayment(fee);
         tokenId = _claim(index, netlist, nIn, nOut, proof, fee);
@@ -377,7 +385,7 @@ contract CuratedVault is ReentrancyGuard, ICircuitURIProvider {
         nonReentrant
         returns (uint256[] memory tokenIds)
     {
-        if (msg.sender != CURATOR) revert OnlyCurator();
+        _onlyCurator();
         uint256 fee = circuits.TAPEOUT_FEE();
         if (msg.value != fee * works.length) revert WrongPayment(fee * works.length);
         tokenIds = new uint256[](works.length);
@@ -447,8 +455,37 @@ contract CuratedVault is ReentrancyGuard, ICircuitURIProvider {
     /// @notice Whether finalize() may be called now (ignoring whether it already was).
     function finalizable() public view returns (bool) {
         if (sold == COUNT) return true;
-        if (block.timestamp < SALE_END) return false;
-        return reservedClaimed == RESERVED_COUNT || block.timestamp >= uint256(SALE_END) + RESERVE_GRACE;
+        if (block.timestamp < saleEnd) return false;
+        return reservedClaimed == RESERVED_COUNT || block.timestamp >= uint256(saleEnd) + RESERVE_GRACE;
+    }
+
+    // ------------------------------------------------------------------ sale controls (curator)
+
+    function _onlyCurator() internal view {
+        if (msg.sender != CURATOR) revert OnlyCurator();
+    }
+
+    /// @notice The sale end as it stands now (the launch value, or a later one set by extendSale).
+    function SALE_END() external view returns (uint64) {
+        return saleEnd;
+    }
+
+    /// @notice Curator only: stop or resume buying (public sale and presale). Nothing else changes: the work list,
+    /// prices, the sale end and reserved claims stay as they are, and anyone can still finalize when finalizable.
+    function setPaused(bool p) external {
+        _onlyCurator();
+        if (finalized) revert AlreadyFinalized();
+        paused = p;
+        emit SalePaused(p);
+    }
+
+    /// @notice Curator only: move the sale end later, while the sale has not ended and the vault is not finalized.
+    /// It can never move earlier, and an ended sale cannot be reopened.
+    function extendSale(uint64 newEnd) external {
+        _onlyCurator();
+        if (finalized || block.timestamp >= saleEnd || newEnd <= saleEnd) revert CannotExtend();
+        emit SaleEndExtended(saleEnd, newEnd);
+        saleEnd = newEnd;
     }
 
     // ------------------------------------------------------------------ receivers
