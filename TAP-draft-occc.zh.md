@@ -348,7 +348,7 @@ function tokenURI(uint256 id) public view returns (string memory) {
 
 ## 参考实现
 
-代码仓库：<https://github.com/gm-lsp/Tapeout-OCCC/tree/9c9ffa3fe273aa8b02cda96aa2f52194893d4a53>（MIT）
+代码仓库：<https://github.com/gm-lsp/Tapeout-OCCC/tree/fcdec699d7dacdb74c54e457f9094212214e5f72>（MIT）
 - `src/CuratedRegistry.sol`：登记合约兼发行器（第 3、4 节）
 - `src/CuratedVault.sol`：Vault（第 6 节），参考实现为每件作品固定价格
 - `src/interfaces/ICuratedRegistry.sol`：第 3、9、11 节的接口
