@@ -373,7 +373,7 @@ function tokenURI(uint256 id) public view returns (string memory) {
 
 ## 参考实现
 
-代码仓库：<https://github.com/gm-lsp/Tapeout-OCCC/tree/bd711b3afc167ab09670d0cd1d291c56530d31ff>（MIT）
+代码仓库：<https://github.com/gm-lsp/Tapeout-OCCC/tree/cf87dc39700ec54e0b7e7e6db4da22c31b672d81>（MIT）
 - `src/CuratedRegistry.sol`：登记合约兼发行器（第 3、4 节）
 - `src/CuratedVault.sol`：Vault（第 6 节），参考实现为每件作品固定价格，用原生币或 ERC-20 计价，并可按白名单档位设预售价
 - `src/CuratedVaultDeployer.sol`：为一个登记合约保存 Vault 的创建代码（第 4.1 条）
