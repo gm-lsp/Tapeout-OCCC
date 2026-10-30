@@ -381,7 +381,7 @@ The tool also refuses work lists with a REF to a circuit that does not exist yet
 
 ## Reference Implementation
 
-Repository: <https://github.com/gm-lsp/Tapeout-OCCC/tree/b360e8d7ed67ca2ea0c27b85b97d656c9e337f12> (MIT).
+Repository: <https://github.com/gm-lsp/Tapeout-OCCC/tree/bd711b3afc167ab09670d0cd1d291c56530d31ff> (MIT).
 
 - `src/CuratedRegistry.sol` — registry and launcher (§3, §4).
 - `src/CuratedVault.sol` — vault (§6), reference sale with fixed prices per work, in the native coin or an ERC-20.
