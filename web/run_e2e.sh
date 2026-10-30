@@ -33,11 +33,20 @@ esac
 REG=$(forge create src/CuratedRegistry.sol:CuratedRegistry --rpc-url $R --private-key $K1 --broadcast \
   --constructor-args $FACTORY 2>&1 | awk '/Deployed to/{print $3}')
 NOW=$(cast block latest --field timestamp --rpc-url $R)
+# E2E_TOKEN=1: price the collection in an ERC-20 (a test token with 8 decimals), the tape-out fee stays native
+TOKEN=0x0000000000000000000000000000000000000000
+if [ "${E2E_TOKEN:-0}" = 1 ]; then
+  TOKEN=$(forge create test/Curated.t.sol:MockToken --rpc-url $R --private-key $K1 --broadcast 2>&1 | awk '/Deployed to/{print $3}')
+  cast send $TOKEN "mint(address,uint256)" $B 1000000000000000000000 --rpc-url $R --private-key $K1 >/dev/null
+  echo "payment token $TOKEN"
+fi
 
-python3 - "$REG" "$A1" "$B" "$NOW" "$SPEC" <<'EOF'
+python3 - "$REG" "$A1" "$B" "$NOW" "$SPEC" "$TOKEN" <<'EOF'
 import json, sys
 reg, cur, buyer, now = sys.argv[1], sys.argv[2], sys.argv[3], int(sys.argv[4])
 s = json.load(open(sys.argv[5]))
+if int(sys.argv[6], 16):
+    s["paymentToken"] = sys.argv[6]
 s.update(registry=reg, curator=cur, saleStart=now + 3600, saleEnd=now + 30 * 86400,
          presale={"start": now - 60, "allowlist": [{"address": buyer, "quota": 1}]})
 # hostile text that the curator really published (and committed on chain): it must render as plain text
@@ -88,7 +97,7 @@ sleep 1
 
 cast rpc anvil_impersonateAccount $A2 --rpc-url $R >/dev/null
 cast rpc anvil_impersonateAccount $A1 --rpc-url $R >/dev/null
-python3 web/e2e_test.py "http://127.0.0.1:8780/" "$B" "$OUT/shots" "$ETHERS" "$CIR" "$A2" "$M" "$A1"
+E2E_PAYMENT_TOKEN=$TOKEN python3 web/e2e_test.py "http://127.0.0.1:8780/" "$B" "$OUT/shots" "$ETHERS" "$CIR" "$A2" "$M" "$A1"
 STATUS=$?
 [ -n "${CHECKROOT_FAILED:-}" ] && STATUS=1
 rm -f tool/examples/_e2e_spec.json $M

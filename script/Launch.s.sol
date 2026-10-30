@@ -45,6 +45,8 @@ contract Launch is Script {
         p.royaltyBps = uint16(vm.parseJsonUint(m, ".launch.royaltyBps"));
         p.titlesHash = vm.parseJsonBytes32(m, ".launch.titlesHash");
         p.metadataURI = vm.parseJsonString(m, ".launch.metadataURI");
+        // native coin (address(0)) unless the manifest names an ERC-20 for the prices
+        if (vm.keyExistsJson(m, ".launch.paymentToken")) p.paymentToken = vm.parseJsonAddress(m, ".launch.paymentToken");
 
         vm.startBroadcast();
         require(msg.sender == p.curator, "the sender must be the manifest's curator");

@@ -44,6 +44,8 @@ contract Demo is Script {
         p.royaltyBps = uint16(vm.parseJsonUint(m, ".launch.royaltyBps"));
         p.titlesHash = vm.parseJsonBytes32(m, ".launch.titlesHash");
         p.metadataURI = vm.parseJsonString(m, ".launch.metadataURI");
+        // native coin (address(0)) unless the manifest names an ERC-20 for the prices
+        if (vm.keyExistsJson(m, ".launch.paymentToken")) p.paymentToken = vm.parseJsonAddress(m, ".launch.paymentToken");
 
         vm.startBroadcast(pk);
         (address v,, address c) = reg.launch{value: vm.parseJsonUint(m, ".launch.launchValueWei")}(p);

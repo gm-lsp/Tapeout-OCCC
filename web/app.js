@@ -20,7 +20,7 @@ const VAULT_ABI = [
   "function LIMIT_PER_WALLET() view returns (bool)", "function MAX_PER_WALLET() view returns (uint32)",
   "function sold() view returns (uint32)", "function finalized() view returns (bool)", "function paused() view returns (bool)", "function reservedClaimed() view returns (uint32)",
   "function taken(uint256) view returns (bool)", "function remainingFor(address) view returns (bool,uint32)",
-  "function presaleBought(address) view returns (uint32)",
+  "function presaleBought(address) view returns (uint32)", "function PAYMENT_TOKEN() view returns (address)",
   "function buy(uint256,bytes,uint32,uint32,uint256,bytes32[],address) payable returns (uint256)",
   "function buyPresale(uint256,bytes,uint32,uint32,uint256,bytes32[],address,uint32,bytes32[]) payable returns (uint256)",
   "function claimReserved(uint256,bytes,uint32,uint32,bytes32[]) payable returns (uint256)",
@@ -28,7 +28,12 @@ const VAULT_ABI = [
   "error WrongPayment(uint256)", "error WalletLimitReached(address)", "error RecipientMustBeBuyer()",
   "error NoPresale()", "error PresaleNotOpen()", "error NotAllowlisted()", "error PresaleQuotaUsed()",
   "error OnlyCurator()", "error ReservedQuotaUsed()", "error AlreadyFinalized()", "error IndexOutOfRange()", "error ZeroRecipient()",
-  "error ReentrancyGuardReentrantCall()",
+  "error ReentrancyGuardReentrantCall()", "error SaleIsPaused()", "error TokenAmountMismatch(uint256,uint256)",
+];
+const ERC20_ABI = [
+  "function symbol() view returns (string)", "function decimals() view returns (uint8)",
+  "function balanceOf(address) view returns (uint256)", "function allowance(address,address) view returns (uint256)",
+  "function approve(address,uint256) returns (bool)",
 ];
 const CIRC_ABI = [
   "function TAPEOUT_FEE() view returns (uint256)", "function ownerOf(uint256) view returns (address)",
@@ -41,6 +46,8 @@ const ERR_TEXT = {
   NoPresale: "本集合没有预售。", PresaleNotOpen: "现在不在预售时间内。", NotAllowlisted: "你的钱包不在白名单中。",
   PresaleQuotaUsed: "你的预售额度已经用完，可以在公开发售时继续购买。", OnlyCurator: "只有策展人可以领取国库预留作品。",
   ReservedQuotaUsed: "国库预留名额已经用完。", AlreadyFinalized: "发售已经收尾，剩余作品再也不能流片。",
+  SaleIsPaused: "策展人暂停了销售，恢复后才能购买。",
+  TokenAmountMismatch: "这个代币转账时扣了费或数额不符，发售合约拒收。",
 };
 const ALLOW_TAG = E.keccak256(E.toUtf8Bytes("TAP-curated-allowlist"));
 const META_TAG = E.keccak256(E.toUtf8Bytes("TAP-curated-metadata"));
@@ -73,7 +80,12 @@ const CHAINS = {
 const chainOf = () => S.cfg?.addChain || CHAINS[Number(S.cfg?.chainId)] || null;
 const coin = () => chainOf()?.nativeCurrency?.symbol || "原生币";
 const chainName = () => chainOf()?.chainName || `链 ${S.cfg?.chainId}`;
-const amount = (wei) => { const v = E.formatEther(BigInt(wei)); return v === "0.0" ? "免费" : v.replace(/\.0$/, "") + " " + coin(); };
+// work prices are in the collection's payment token when it has one (S.token), otherwise in the native coin
+const amount = (wei) => {
+  const v = S.token ? E.formatUnits(BigInt(wei), S.token.decimals) : E.formatEther(BigInt(wei));
+  return /^0(\.0*)?$/.test(v) ? "免费" : v.replace(/\.0$/, "") + " " + (S.token ? S.token.symbol : coin());
+};
+const nativeAmount = (wei) => E.formatEther(BigInt(wei)).replace(/\.0$/, "") + " " + coin();
 const when = (ts) => new Date(Number(ts) * 1000).toLocaleString("zh-CN", { hour12: false });
 const sameAddr = (a, b) => typeof a === "string" && typeof b === "string" && a.toLowerCase() === b.toLowerCase();
 const intOrQ = (v) => (Number.isSafeInteger(v) && v >= 0 ? String(v) : "?");
@@ -93,7 +105,7 @@ function explainError(e) {
     if (p && ERR_TEXT[p.name]) return ERR_TEXT[p.name];
   } catch (_) { /* not a vault error */ }
   if (e?.code === "ACTION_REJECTED" || e?.info?.error?.code === 4001) return "你取消了这笔交易。";
-  if (e?.code === "INSUFFICIENT_FUNDS") return `钱包里的 ${coin()} 不够支付价格和流片费。`;
+  if (e?.code === "INSUFFICIENT_FUNDS") return S.token ? `钱包里的 ${coin()} 不够支付流片费。` : `钱包里的 ${coin()} 不够支付价格和流片费。`;
   return "交易没有成功：" + (e?.shortMessage || e?.message || "未知原因");
 }
 
@@ -151,6 +163,10 @@ function checkManifest(m, cfg, col, allowRootOnChain) {
   if (BigInt(m.chainId ?? 0) !== chainId) fail("清单是为另一条链生成的。");
   const curator = col.curator;
   if (!sameAddr(m.launch?.curator, curator)) fail("清单里的策展人与链上记录不一致。");
+  // a manifest without paymentToken (format 5) is priced in the native coin
+  if (!sameAddr(m.launch?.paymentToken || E.ZeroAddress, S.token ? S.token.address : E.ZeroAddress)) {
+    fail("清单里的计价代币与链上记录不一致。");
+  }
   const works = m.works.map((w, i) => {
     const ok = w && w.index === i && isHex(w.netlist) && Number.isSafeInteger(w.nIn) && Number.isSafeInteger(w.nOut)
       && typeof w.reserved === "boolean" && /^\d+$/.test(String(w.priceWei)) && !(w.reserved && String(w.priceWei) !== "0");
@@ -211,6 +227,14 @@ async function load() {
     S.vault.REGISTRY(), S.vault.SALE_START(), S.vault.SALE_END(), S.vault.PRESALE_START(), S.vault.ALLOW_ROOT(),
     S.vault.LIMIT_PER_WALLET(), S.vault.MAX_PER_WALLET(), S.circ.TAPEOUT_FEE(), S.reg.royaltyOf(S.cfg.circuits)]);
   if (!sameAddr(vreg, S.cfg.registry)) fail("发售合约不属于本站配置的登记合约。");
+  // the payment token (vaults of earlier versions have none: native coin)
+  // a vault of an earlier version has no PAYMENT_TOKEN (the call reverts): native coin
+  const pt = await S.vault.PAYMENT_TOKEN().catch((e) => { if (e?.code === "CALL_EXCEPTION") return E.ZeroAddress; throw e; });
+  if (pt !== E.ZeroAddress) {
+    const t = new E.Contract(pt, ERC20_ABI, S.rpc);
+    const [sym, dec] = await Promise.all([t.symbol().catch(() => "代币"), t.decimals()]);
+    S.token = { address: pt, symbol: String(sym).slice(0, 16) || "代币", decimals: Number(dec), c: t };
+  }
   const raw = await (await fetch(S.cfg.manifest || "manifest.json", { cache: "no-store" })).json();
   S.m = checkManifest(raw, S.cfg, S.col, ar);
   Object.assign(S, { saleStart: ss, saleEnd: se, presaleStart: ps, hasPresale: ar !== E.ZeroHash, limited: lim, max, fee });
@@ -218,6 +242,10 @@ async function load() {
   $("c-name").textContent = S.m.name; $("c-title").textContent = S.m.name; $("c-story").textContent = S.m.story;
   $("f-circuits").textContent = short(S.cfg.circuits); $("f-circuits").title = S.cfg.circuits;
   $("f-limit").textContent = lim ? `每个钱包最多 ${max} 件，只能为自己购买` : "不限制";
+  $("f-pay").textContent = S.token
+    ? `${S.token.symbol}（代币 ${short(S.token.address)}）；另付流片费 ${nativeAmount(fee)}`
+    : `${coin()}（另付流片费 ${nativeAmount(fee)}）`;
+  $("f-pay").title = S.token ? S.token.address : "";
   $("f-roy").textContent = Number(roy[1]) ? `${Number(roy[1]) / 100}%，由各市场决定是否收取` : "未设置";
   $("f-roy").title = Number(roy[1]) ? "收款地址 " + roy[0] : "";
   $("f-reg").textContent = "登记合约 " + S.cfg.registry;
@@ -357,29 +385,60 @@ if (window.ethereum?.on) {
   window.ethereum.on("chainChanged", () => location.reload());
 }
 
-async function send(btn, label, fn) {
-  if (!S.signer) { await connect(); if (!S.signer) return; }
+// A wallet is ready when it is connected and on this site's chain. Connecting re-renders the page (the clicked
+// button is replaced), so after connecting the buyer clicks again.
+async function walletReady() {
+  if (!S.signer) { await connect(); return false; }
   // never send money on another chain, even if the wallet changed chain without telling the page
   if ((await new E.BrowserProvider(window.ethereum).getNetwork()).chainId !== BigInt(S.cfg.chainId)) {
-    toast(`钱包当前不在 ${chainName()} 上，请切换网络后重试。`, true); disconnect(); return;
+    toast(`钱包当前不在 ${chainName()} 上，请切换网络后重试。`, true); disconnect(); return false;
   }
-  btn.disabled = true; const old = btn.textContent; btn.textContent = "等待钱包确认…";
+  return true;
+}
+
+// one transaction flow at a time; `steps` gets the signer-connected vault and may send several transactions
+async function send(btn, label, steps) {
+  if (S.busy) return;
+  if (!(await walletReady())) return;
+  S.busy = true;
+  btn.disabled = true; const old = btn.textContent;
   try {
-    const tx = await fn(S.vault.connect(S.signer));
-    btn.textContent = "流片中…";
-    await tx.wait();
+    await steps(S.vault.connect(S.signer), (text) => { btn.textContent = text; });
     toast(label);
+    S.busy = false;
     await refresh();
   } catch (e) { toast(explainError(e), true); btn.disabled = false; btn.textContent = old; }
+  finally { S.busy = false; }
+}
+async function tx(promise, status, waiting) {
+  status("等待钱包确认…");
+  const t = await promise;
+  status(waiting);
+  await t.wait();
 }
 function buy(w, kind, btn) {
-  const value = BigInt(w.priceWei) + S.fee;
-  send(btn, `已购买「${w.title}」，作品已到你的钱包。`, (v) => (kind === "presale"
-    ? v.buyPresale(w.index, w.netlist, w.nIn, w.nOut, w.priceWei, w.proof, S.wallet, S.allow.quota, S.allow.proof, { value })
-    : v.buy(w.index, w.netlist, w.nIn, w.nOut, w.priceWei, w.proof, S.wallet, { value })));
+  const price = BigInt(w.priceWei);
+  const value = S.token ? S.fee : price + S.fee;
+  send(btn, `已购买「${w.title}」，作品已到你的钱包。`, async (v, status) => {
+    if (S.token && price > 0n) {
+      // the price is pulled from the buyer's token balance: check it, and approve exactly this price if needed
+      const t = S.token.c.connect(S.signer);
+      if ((await t.balanceOf(S.wallet)) < price) throw new Error(`钱包里的 ${S.token.symbol} 不够支付 ${amount(price)}。`);
+      const allowed = await t.allowance(S.wallet, S.col.vault);
+      if (allowed < price) {
+        // some tokens (USDT style) refuse to change a non-zero allowance directly
+        if (allowed > 0n) await tx(t.approve(S.col.vault, 0n), status, `清零 ${S.token.symbol} 授权…`);
+        await tx(t.approve(S.col.vault, price), status, `授权 ${S.token.symbol}…`);
+      }
+    }
+    await tx(kind === "presale"
+      ? v.buyPresale(w.index, w.netlist, w.nIn, w.nOut, w.priceWei, w.proof, S.wallet, S.allow.quota, S.allow.proof, { value })
+      : v.buy(w.index, w.netlist, w.nIn, w.nOut, w.priceWei, w.proof, S.wallet, { value }), status, "流片中…");
+  });
 }
 function claim(w, btn) {
-  send(btn, `已把「${w.title}」领取进国库。`, (v) => v.claimReserved(w.index, w.netlist, w.nIn, w.nOut, w.proof, { value: S.fee }));
+  send(btn, `已把「${w.title}」领取进国库。`,
+    (v, status) => tx(v.claimReserved(w.index, w.netlist, w.nIn, w.nOut, w.proof, { value: S.fee }), status, "流片中…"));
 }
 
 // ------------------------------------------------------------------ verify

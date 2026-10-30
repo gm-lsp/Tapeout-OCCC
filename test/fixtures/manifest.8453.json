@@ -1,5 +1,5 @@
 {
- "format": "curated-collection-manifest/5",
+ "format": "curated-collection-manifest/6",
  "chainId": 8453,
  "registry": "0x00000000000000000000000000000000c0dec0de",
  "launch": {
@@ -28,6 +28,9 @@
   "royaltyBps": 300,
   "titlesHash": "0x87f76642e6753a03771d47b1cd8e0139a06c890ad01a3b747575852540f8f4d1",
   "metadataURI": "ar://P05TestMetadataDirectory_NotUploaded_000000",
+  "paymentToken": "0x0000000000000000000000000000000000000000",
+  "paymentSymbol": "ETH",
+  "paymentDecimals": 18,
   "metadataHash": "0xcc12a9862ce7371a096b9aecda7b7fbefd1da9d888013a06137dcc8a8826582b",
   "launchValueWei": "25450000000000000"
  },

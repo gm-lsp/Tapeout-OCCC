@@ -2,6 +2,8 @@
 pragma solidity ^0.8.24;
 
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {MerkleProof} from "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
 import {ITapeOutFactory, ITapeOutTransistors, ITapeOutCircuits} from "./interfaces/ITapeOut.sol";
 import {CuratedRegistry} from "./CuratedRegistry.sol";
@@ -41,6 +43,8 @@ contract CuratedVault is ReentrancyGuard, ICircuitURIProvider {
         uint16 royaltyBps; // royalty rate in basis points, at most the registry's MAX_ROYALTY_BPS; 0 when none
         bytes32 titlesHash; // keccak256 of the keccak256 of every work title (UTF-8), in index order; see metadataOf
         string metadataURI; // content-addressed directory of <index>.json metadata files ("ipfs://<CID>" or "ar://<id>"); "" = none
+        address paymentToken; // ERC-20 that work prices are paid in; address(0) = the chain's native coin. Tape-out fees
+        // are always paid in the native coin
     }
 
     uint16 public constant MAX_PLATFORM_BPS = 1000; // 10%
@@ -55,7 +59,11 @@ contract CuratedVault is ReentrancyGuard, ICircuitURIProvider {
     /// anyone may finalize; finalize is allowed earlier once every reserved work is claimed
     uint64 public constant RESERVE_GRACE = 30 days;
 
+    using SafeERC20 for IERC20;
+
     CuratedRegistry public immutable REGISTRY;
+    /// @notice the ERC-20 work prices and payouts are in; address(0) = the native coin
+    address public immutable PAYMENT_TOKEN;
     address public immutable CURATOR;
     address public immutable PLATFORM;
     uint16 public immutable PLATFORM_BPS;
@@ -122,6 +130,7 @@ contract CuratedVault is ReentrancyGuard, ICircuitURIProvider {
     error CannotExtend();
     error NotAllowlisted();
     error PresaleQuotaUsed();
+    error TokenAmountMismatch(uint256 expected, uint256 received);
 
     constructor(CuratedRegistry registry, LaunchParams memory p) {
         if (p.curator == address(0)) revert BadParams("curator");
@@ -138,10 +147,19 @@ contract CuratedVault is ReentrancyGuard, ICircuitURIProvider {
         if (p.allowRoot == bytes32(0) ? p.presaleStart != 0 : (p.presaleStart == 0 || p.presaleStart >= p.saleStart)) {
             revert BadParams("presale");
         }
-        if (p.treasury == address(this) || p.treasury == address(registry)) revert BadParams("treasury");
-        // neither can receive BNB, so a share sent there would be locked forever
-        if (p.platform == address(this) || p.platform == address(registry)) revert BadParams("platform");
+        // the vault, the registry and the deployer creating this vault (msg.sender) can receive neither circuits nor
+        // payouts, so a work or a share sent there would be locked forever
+        if (p.treasury == address(this) || p.treasury == address(registry) || p.treasury == msg.sender) {
+            revert BadParams("treasury");
+        }
+        if (p.platform == address(this) || p.platform == address(registry) || p.platform == msg.sender) {
+            revert BadParams("platform");
+        }
+        if (p.paymentToken != address(0)
+            && (p.paymentToken.code.length == 0 || p.paymentToken == address(registry) || p.paymentToken == msg.sender)
+        ) revert BadParams("paymentToken");
         REGISTRY = registry;
+        PAYMENT_TOKEN = p.paymentToken;
         CURATOR = p.curator;
         PLATFORM = p.platform;
         PLATFORM_BPS = p.platformBps;
@@ -320,7 +338,9 @@ contract CuratedVault is ReentrancyGuard, ICircuitURIProvider {
             revert InvalidProof();
         }
         uint256 fee = circuits.TAPEOUT_FEE();
-        if (msg.value != price + fee) revert WrongPayment(price + fee);
+        // native coin: price + tape-out fee in msg.value; token: the tape-out fee in msg.value, the price pulled below
+        uint256 due = PAYMENT_TOKEN == address(0) ? price + fee : fee;
+        if (msg.value != due) revert WrongPayment(due);
 
         // effects
         if (LIMIT_PER_WALLET) {
@@ -336,6 +356,16 @@ contract CuratedVault is ReentrancyGuard, ICircuitURIProvider {
         owed[CURATOR] += price - cut;
 
         // interactions
+        if (PAYMENT_TOKEN != address(0) && price > 0) {
+            // only tokens that deliver exactly the amount sent: fee-on-transfer and rebasing tokens are refused
+            IERC20 token = IERC20(PAYMENT_TOKEN);
+            uint256 before = token.balanceOf(address(this));
+            token.safeTransferFrom(msg.sender, address(this), price);
+            uint256 afterwards = token.balanceOf(address(this));
+            if (afterwards < before || afterwards - before != price) {
+                revert TokenAmountMismatch(price, afterwards > before ? afterwards - before : 0);
+            }
+        }
         tokenId = circuits.tapeout{value: fee}(netlist, nIn, nOut);
         REGISTRY.certify(address(circuits), tokenId, index, netlistHash, false);
         circuits.safeTransferFrom(address(this), recipient, tokenId);
@@ -423,7 +453,7 @@ contract CuratedVault is ReentrancyGuard, ICircuitURIProvider {
         _pay(payee, payee);
     }
 
-    /// @notice For a payee that cannot receive BNB itself: send what the caller is owed to `to`.
+    /// @notice For a payee that cannot receive the payment (native coin or token) itself: send what the caller is owed to `to`.
     function withdrawTo(address to) external nonReentrant {
         if (to == address(0)) revert ZeroRecipient();
         _pay(msg.sender, to);
@@ -433,8 +463,12 @@ contract CuratedVault is ReentrancyGuard, ICircuitURIProvider {
         uint256 amount = owed[payee];
         if (amount == 0) revert NothingOwed();
         owed[payee] = 0;
-        (bool ok,) = to.call{value: amount}("");
-        if (!ok) revert TransferFailed();
+        if (PAYMENT_TOKEN == address(0)) {
+            (bool ok,) = to.call{value: amount}("");
+            if (!ok) revert TransferFailed();
+        } else {
+            IERC20(PAYMENT_TOKEN).safeTransfer(to, amount);
+        }
         emit Withdrawn(payee, amount);
     }
 

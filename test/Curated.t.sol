@@ -6,8 +6,109 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol
 import {CuratedRegistry} from "../src/CuratedRegistry.sol";
 import {ICircuitURIProvider} from "../src/interfaces/ICircuitURIProvider.sol";
 import {CuratedVault} from "../src/CuratedVault.sol";
+import {CuratedVaultDeployer} from "../src/CuratedVaultDeployer.sol";
 import {ICuratedRegistry} from "../src/interfaces/ICuratedRegistry.sol";
 import {ITapeOutFactory, ITapeOutTransistors, ITapeOutCircuits} from "../src/interfaces/ITapeOut.sol";
+
+/// A plain ERC-20 for the payment-token tests (8 decimals, like BEM).
+contract MockToken {
+    string public constant symbol = "MOCK";
+    uint8 public constant decimals = 8;
+    mapping(address => uint256) public balanceOf;
+    mapping(address => mapping(address => uint256)) public allowance;
+    uint256 public totalSupply;
+
+    function mint(address to, uint256 amount) external {
+        balanceOf[to] += amount;
+        totalSupply += amount;
+    }
+
+    function approve(address spender, uint256 amount) external returns (bool) {
+        allowance[msg.sender][spender] = amount;
+        return true;
+    }
+
+    function transfer(address to, uint256 amount) external returns (bool) {
+        _move(msg.sender, to, amount);
+        return true;
+    }
+
+    function transferFrom(address from, address to, uint256 amount) external returns (bool) {
+        allowance[from][msg.sender] -= amount;
+        _move(from, to, amount);
+        return true;
+    }
+
+    function _move(address from, address to, uint256 amount) internal virtual {
+        balanceOf[from] -= amount;
+        balanceOf[to] += amount;
+    }
+}
+
+/// Takes 1 % of every transfer: the vault must refuse it.
+contract FeeToken is MockToken {
+    function _move(address from, address to, uint256 amount) internal override {
+        uint256 tax = amount / 100;
+        balanceOf[from] -= amount;
+        balanceOf[to] += amount - tax;
+        totalSupply -= tax;
+    }
+}
+
+/// Like USDT: transfer and transferFrom return nothing.
+contract NoReturnToken {
+    mapping(address => uint256) public balanceOf;
+    mapping(address => mapping(address => uint256)) public allowance;
+
+    function mint(address to, uint256 amount) external {
+        balanceOf[to] += amount;
+    }
+
+    function approve(address spender, uint256 amount) external {
+        allowance[msg.sender][spender] = amount;
+    }
+
+    function transfer(address to, uint256 amount) external {
+        balanceOf[msg.sender] -= amount;
+        balanceOf[to] += amount;
+    }
+
+    function transferFrom(address from, address to, uint256 amount) external {
+        allowance[from][msg.sender] -= amount;
+        balanceOf[from] -= amount;
+        balanceOf[to] += amount;
+    }
+}
+
+/// Calls back into the vault on every transfer (like an ERC-777 hook) and records whether that call got in.
+contract HookToken is MockToken {
+    address public vault;
+    bytes public hook;
+    bool public reentered;
+
+    function arm(address v, bytes calldata data) external {
+        vault = v;
+        hook = data;
+    }
+
+    function _move(address from, address to, uint256 amount) internal override {
+        super._move(from, to, amount);
+        if (vault != address(0) && hook.length > 0) {
+            (bool ok,) = vault.call(hook);
+            if (ok) reentered = true;
+        }
+    }
+}
+
+interface IERC20Meta {
+    function decimals() external view returns (uint8);
+    function balanceOf(address) external view returns (uint256);
+    function approve(address, uint256) external returns (bool);
+}
+
+interface IFactoryFees {
+    function protocolFee() external view returns (uint256);
+}
 
 /// Fork tests against live TapeOut state on BNB Smart Chain, X Layer or Base. Run with one of:
 ///   forge test --fork-url https://bsc-dataseed.bnbchain.org   (chain 56)
@@ -16,10 +117,6 @@ import {ITapeOutFactory, ITapeOutTransistors, ITapeOutCircuits} from "../src/int
 /// Works come from test/fixtures/manifest.json (chain 56) or manifest.<chainId>.json, produced by
 /// `tool/curate.py build`. The manifest's leaves are bound to the chain, the registry address REG and the curator,
 /// so the registry is placed at REG.
-interface IFactoryFees {
-    function protocolFee() external view returns (uint256);
-}
-
 contract CuratedForkTest is Test {
     ITapeOutFactory FACTORY;
     // a circuit of another processor on the same chain (its netlist is not in the work list)
@@ -115,6 +212,7 @@ contract CuratedForkTest is Test {
         p.royaltyBps = uint16(vm.parseJsonUint(manifest, ".launch.royaltyBps"));
         p.titlesHash = vm.parseJsonBytes32(manifest, ".launch.titlesHash");
         p.metadataURI = vm.parseJsonString(manifest, ".launch.metadataURI");
+        p.paymentToken = vm.parseJsonAddress(manifest, ".launch.paymentToken");
     }
 
     struct Work {
@@ -295,7 +393,9 @@ contract CuratedForkTest is Test {
 
     /// The treasury and the platform can be neither the vault being deployed nor the registry.
     function test_PayeesCannotBeVaultOrRegistry() public {
-        address nextVault = vm.computeCreateAddress(REG, vm.getNonce(REG));
+        // vaults are created by the registry's deployer; none of the vault, the registry and the deployer can be a payee
+        address d = address(reg.DEPLOYER());
+        address nextVault = vm.computeCreateAddress(d, vm.getNonce(d));
         CuratedVault.LaunchParams memory p = _params();
         p.treasury = nextVault;
         vm.prank(curator);
@@ -312,6 +412,18 @@ contract CuratedForkTest is Test {
         p.platform = REG;
         vm.prank(curator);
         vm.expectRevert(abi.encodeWithSelector(CuratedVault.BadParams.selector, "platform"));
+        reg.launch{value: launchValue}(p);
+
+        p = _params();
+        p.platform = d;
+        vm.prank(curator);
+        vm.expectRevert(abi.encodeWithSelector(CuratedVault.BadParams.selector, "platform"));
+        reg.launch{value: launchValue}(p);
+
+        p = _params();
+        p.treasury = d;
+        vm.prank(curator);
+        vm.expectRevert(abi.encodeWithSelector(CuratedVault.BadParams.selector, "treasury"));
         reg.launch{value: launchValue}(p);
     }
 
@@ -1366,6 +1478,198 @@ contract CuratedForkTest is Test {
 
     function workFor(uint256 i) external view returns (Work memory) {
         return _work(i);
+    }
+
+    // ------------------------------------------------------------------ payment token (ERC-20 prices)
+
+    function _launchToken(address token) internal {
+        CuratedVault.LaunchParams memory p = _params();
+        p.paymentToken = token;
+        _launchWith(p);
+    }
+
+    function _tokenBuy(MockToken tok, uint256 i, address payer) internal returns (uint256 id) {
+        Work memory w = _work(i);
+        tok.mint(payer, w.price);
+        vm.prank(payer);
+        tok.approve(address(vault), w.price);
+        vm.prank(payer);
+        id = vault.buy{value: fee}(w.index, w.netlist, w.nIn, w.nOut, w.price, w.proof, payer);
+    }
+
+    /// Prices are paid in the token and the tape-out fee in the native coin; payouts are in the token.
+    function test_Token_BuyAndWithdraw() public {
+        MockToken tok = new MockToken();
+        _launchToken(address(tok));
+        assertEq(vault.PAYMENT_TOKEN(), address(tok));
+        Work memory w = _work(0);
+        assertGt(w.price, 0);
+
+        // the native-coin way of paying is refused: msg.value must be exactly the tape-out fee
+        tok.mint(buyer, w.price);
+        vm.prank(buyer);
+        tok.approve(address(vault), w.price);
+        vm.prank(buyer);
+        vm.expectRevert(abi.encodeWithSelector(CuratedVault.WrongPayment.selector, fee));
+        vault.buy{value: w.price + fee}(w.index, w.netlist, w.nIn, w.nOut, w.price, w.proof, buyer);
+        // without an allowance the purchase reverts as a whole
+        address poor = _eoa("p05-token-noallowance");
+        vm.deal(poor, 1 ether);
+        vm.prank(poor);
+        vm.expectRevert();
+        vault.buy{value: fee}(w.index, w.netlist, w.nIn, w.nOut, w.price, w.proof, poor);
+
+        uint256 nativeBefore = buyer.balance;
+        vm.prank(buyer);
+        uint256 id = vault.buy{value: fee}(w.index, w.netlist, w.nIn, w.nOut, w.price, w.proof, buyer);
+        assertEq(buyer.balance, nativeBefore - fee, "only the tape-out fee in native coin");
+        assertEq(tok.balanceOf(buyer), 0);
+        assertEq(tok.balanceOf(address(vault)), w.price);
+        assertTrue(reg.isOfficial(address(C), id));
+        assertEq(C.ownerOf(id), buyer);
+
+        uint256 cut = (w.price * vault.PLATFORM_BPS()) / 10_000;
+        assertEq(vault.owed(vault.PLATFORM()), cut);
+        assertEq(vault.owed(curator), w.price - cut);
+        vault.withdraw(curator);
+        vault.withdraw(vault.PLATFORM());
+        assertEq(tok.balanceOf(curator), w.price - cut);
+        assertEq(tok.balanceOf(vault.PLATFORM()), cut);
+        assertEq(tok.balanceOf(address(vault)), 0);
+        assertEq(address(vault).balance, 0, "no native coin left behind");
+    }
+
+    /// Presale and per-work prices work the same way in the token; reserved claims still cost only the native fee.
+    function test_Token_PresaleAndReservedUnchanged() public {
+        MockToken tok = new MockToken();
+        CuratedVault.LaunchParams memory p = _params();
+        p.paymentToken = address(tok);
+        p.presaleStart = uint64(block.timestamp);
+        p.saleStart = uint64(block.timestamp + 1 days);
+        _launchWith(p);
+        Allow memory alice = _allow(0);
+        Work memory w = _work(1);
+        tok.mint(alice.wallet, w.price);
+        vm.deal(alice.wallet, 1 ether);
+        vm.prank(alice.wallet);
+        tok.approve(address(vault), w.price);
+        vm.prank(alice.wallet);
+        uint256 id = vault.buyPresale{value: fee}(
+            w.index, w.netlist, w.nIn, w.nOut, w.price, w.proof, alice.wallet, alice.quota, alice.proof
+        );
+        assertEq(C.ownerOf(id), alice.wallet);
+        assertEq(tok.balanceOf(address(vault)), w.price);
+
+        Work memory r = _work(RESERVED_WORK);
+        vm.prank(curator);
+        uint256 rid = vault.claimReserved{value: fee}(r.index, r.netlist, r.nIn, r.nOut, r.proof);
+        assertTrue(reg.isReserved(address(C), rid));
+    }
+
+    /// A token that delivers less than the amount sent (transfer tax) is refused, and nothing changes.
+    function test_Token_RefusesFeeOnTransfer() public {
+        FeeToken tok = new FeeToken();
+        _launchToken(address(tok));
+        Work memory w = _work(0);
+        tok.mint(buyer, w.price);
+        vm.prank(buyer);
+        tok.approve(address(vault), w.price);
+        vm.prank(buyer);
+        vm.expectRevert(abi.encodeWithSelector(CuratedVault.TokenAmountMismatch.selector, w.price, w.price - w.price / 100));
+        vault.buy{value: fee}(w.index, w.netlist, w.nIn, w.nOut, w.price, w.proof, buyer);
+        assertFalse(vault.taken(w.index));
+        assertEq(tok.balanceOf(buyer), w.price);
+    }
+
+    /// A free work in a token collection needs no allowance; an address without code is refused as payment token.
+    function test_Token_FreeWorkAndParams() public {
+        CuratedVault.LaunchParams memory p = _params();
+        p.paymentToken = _eoa("p05-not-a-token");
+        vm.prank(curator);
+        vm.expectRevert(abi.encodeWithSelector(CuratedVault.BadParams.selector, "paymentToken"));
+        reg.launch{value: launchValue}(p);
+
+        MockToken tok = new MockToken();
+        _launchToken(address(tok));
+        Work memory w = _work(3); // the XOR is free
+        assertEq(w.price, 0);
+        vm.prank(buyer);
+        uint256 id = vault.buy{value: fee}(w.index, w.netlist, w.nIn, w.nOut, 0, w.proof, buyer);
+        assertTrue(reg.isOfficial(address(C), id));
+    }
+
+    /// A token that returns nothing (USDT style) works; a payee withdraws its share elsewhere with withdrawTo.
+    function test_Token_NoReturnTokenAndWithdrawTo() public {
+        NoReturnToken tok = new NoReturnToken();
+        _launchToken(address(tok));
+        Work memory w = _work(0);
+        tok.mint(buyer, w.price);
+        vm.prank(buyer);
+        tok.approve(address(vault), w.price);
+        vm.prank(buyer);
+        vault.buy{value: fee}(w.index, w.netlist, w.nIn, w.nOut, w.price, w.proof, buyer);
+        address cold = _eoa("p05-token-cold");
+        uint256 share = vault.owed(curator);
+        vm.prank(curator);
+        vault.withdrawTo(cold);
+        assertEq(tok.balanceOf(cold), share);
+        assertEq(vault.owed(curator), 0);
+        // the registry and the deployer are refused as payment tokens
+        CuratedVault.LaunchParams memory p = _params();
+        p.paymentToken = address(reg);
+        vm.prank(curator);
+        vm.expectRevert(abi.encodeWithSelector(CuratedVault.BadParams.selector, "paymentToken"));
+        reg.launch{value: launchValue}(p);
+    }
+
+    /// A token that calls back into the vault during a purchase or a withdrawal cannot get in.
+    function test_Token_ReentrantTokenIsBlocked() public {
+        HookToken tok = new HookToken();
+        _launchToken(address(tok));
+        Work memory w = _work(0);
+        Work memory w1 = _work(1);
+        tok.arm(address(vault), abi.encodeCall(
+            CuratedVault.buy, (w1.index, w1.netlist, w1.nIn, w1.nOut, w1.price, w1.proof, attacker)
+        ));
+        tok.mint(buyer, w.price);
+        vm.prank(buyer);
+        tok.approve(address(vault), w.price);
+        vm.prank(buyer);
+        vault.buy{value: fee}(w.index, w.netlist, w.nIn, w.nOut, w.price, w.proof, buyer);
+        assertFalse(tok.reentered(), "buy re-entered");
+        assertFalse(vault.taken(w1.index));
+        tok.arm(address(vault), abi.encodeCall(CuratedVault.withdraw, (curator)));
+        vault.withdraw(vault.PLATFORM());
+        assertFalse(tok.reentered(), "withdraw re-entered");
+        assertGt(vault.owed(curator), 0);
+    }
+
+    /// The registry deploys vaults only through its own deployer, which nobody else can call.
+    function test_Deployer_OnlyRegistry() public {
+        assertEq(reg.DEPLOYER().REGISTRY(), address(reg));
+        CuratedVault.LaunchParams memory p = _params();
+        CuratedVaultDeployer d = reg.DEPLOYER();
+        vm.prank(attacker);
+        vm.expectRevert(CuratedVaultDeployer.OnlyRegistry.selector);
+        d.deploy(p);
+    }
+
+    /// On BNB Smart Chain, BEM itself works as a payment token (no transfer tax).
+    function test_Token_BEMOnBSC() public {
+        vm.skip(block.chainid != 56);
+        address bem = 0x5ce033B2bFCa3Af30b3e8C8457DeaF776A8b695a;
+        assertEq(IERC20Meta(bem).decimals(), 8);
+        _launchToken(bem);
+        Work memory w = _work(0);
+        deal(bem, buyer, w.price);
+        vm.prank(buyer);
+        IERC20Meta(bem).approve(address(vault), w.price);
+        vm.prank(buyer);
+        uint256 id = vault.buy{value: fee}(w.index, w.netlist, w.nIn, w.nOut, w.price, w.proof, buyer);
+        assertTrue(reg.isOfficial(address(C), id));
+        assertEq(IERC20Meta(bem).balanceOf(address(vault)), w.price);
+        vault.withdraw(curator);
+        assertEq(IERC20Meta(bem).balanceOf(curator), w.price - (w.price * vault.PLATFORM_BPS()) / 10_000);
     }
 }
 

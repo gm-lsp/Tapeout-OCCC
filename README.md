@@ -18,8 +18,8 @@ TapeOut runs on BNB Smart Chain, X Layer and Base, and so does this protocol, un
 
 ## How it works
 
-1. **Launch (one transaction, sent by the curator).** `CuratedRegistry.launch` deploys a `CuratedVault`. The vault creates the processor, mints the whole transistor supply to itself, and binds itself to the registry, which re-checks all of that on chain.
-2. **Sell.** A buyer calls `vault.buy(index, netlist, nIn, nOut, price, proof, recipient)` with `price + TAPEOUT_FEE`. The vault checks the Merkle proof, tapes out with its own transistors, the registry certifies the new circuit id in the same transaction, and the circuit goes to the recipient.
+1. **Launch (one transaction, sent by the curator).** `CuratedRegistry.launch` deploys a `CuratedVault` (through the `CuratedVaultDeployer` the registry created). The vault creates the processor, mints the whole transistor supply to itself, and binds itself to the registry, which re-checks all of that on chain.
+2. **Sell.** A buyer calls `vault.buy(index, netlist, nIn, nOut, price, proof, recipient)` with `price + TAPEOUT_FEE` (in a collection priced in a token, only `TAPEOUT_FEE`; see 12). The vault checks the Merkle proof, tapes out with its own transistors, the registry certifies the new circuit id in the same transaction, and the circuit goes to the recipient.
 3. **Reserve (optional).** Works marked `"reserved": true` in the spec cannot be bought. The curator claims them with `vault.claimReserved(...)`, or several at once with `vault.claimReservedBatch([...])` (tape-out fee per work; before, during and after the sale, until `finalize`), and they go to the `treasury` fixed at launch. From there the treasury can give them away or airdrop them like any circuit; they stay official. Claim them soon after launch.
 4. **Check.** Anyone calls `registry.isOfficial(circuits, id)` / `editionOf(circuits, id)` / `isReserved(circuits, id)`.
 5. **Presale (optional).** `"presale": {"start": <unix time>, "allowlist": [{"address": "0x…", "quota": 2}, …]}`. From `start` until `saleStart`, only allowlisted wallets can buy, each up to its quota, with `vault.buyPresale(...)`; `curate.py allowproof manifest.json 0x…` prints a wallet's proof. The allowlist is a Merkle root fixed at launch and is published in the manifest.
@@ -30,6 +30,7 @@ TapeOut runs on BNB Smart Chain, X Layer and Base, and so does this protocol, un
 10. **Audit the list.** The curator publishes the manifest; anyone runs `curate.py checkroot` to rebuild the root from every published work, and the metadata commitment from the name, symbol, story and titles, and compare them with the chain. Titles are fixed at launch: the registry stores `collectionOf(circuits).metadata`.
 
 11. **Images and metadata (optional).** Give works `"image"` (and optionally `"animation"`, `"description"`, `"attributes"`) as `ipfs://…` or `ar://…` links, run `curate.py metadata manifest.json out/` to write one ERC-721 `<index>.json` per work, upload that folder as one directory (an IPFS folder, or files plus an Arweave path manifest), set `"metadataURI": "ar://<manifest id>"` (or `"ipfs://<CID>"`) in the spec and build again. The directory is fixed at launch; `registry.tokenURI(circuits, id)` then returns `<metadataURI>/<index>.json` for official works and `""` for everything else. Arweave keeps files permanently; bundlers currently upload files under about 100 KiB for free.
+12. **Price in a token (optional).** `"paymentToken": "0x…"` prices every work in that ERC-20 (`priceWei` is then in the token's smallest unit; BEM has 8 decimals). Buyers approve the vault for the price and call `buy` / `buyPresale` with only `TAPEOUT_FEE` in native coin; the vault refuses tokens that do not deliver exactly the price (fee-on-transfer, rebasing); `build --rpc` lists every price in token units so a wrong unit is easy to spot. Curator and platform withdraw in the token. Launch fees and reserved claims stay native. `vault.PAYMENT_TOKEN()` shows the token (`address(0)` = native coin).
 
 No contract has an owner, an admin function or an upgrade path.
 
@@ -38,18 +39,19 @@ No contract has an owner, an admin function or an upgrade path.
 | Path | What |
 |---|---|
 | `src/CuratedRegistry.sol` | registry + launcher |
-| `src/CuratedVault.sol` | per-collection vault and sale |
+| `src/CuratedVault.sol` | per-collection vault and sale (native coin or an ERC-20) |
+| `src/CuratedVaultDeployer.sol` | holds the vault's creation code; created by the registry, callable only by it (keeps the registry under the 24 KB limit) |
 | `src/interfaces/ICuratedRegistry.sol` | the standard interface |
 | `src/interfaces/ICircuitURIProvider.sol` | the `tokenURI` hook proposed to TapeOut (TAP §12); every vault implements it |
 | `src/interfaces/ITapeOut.sol` | the TapeOut functions used (selectors checked on mainnet) |
 | `tool/curate.py` | encoder, Merkle builder, manifest, verifier (Python 3.11+, no dependencies) |
 | `tool/tap02_reference.py`, `tool/tap02_vectors.json` | official TAP-02 reference implementation and vectors (MIT) |
 | `tool/examples/` | a throw-away example collection of small test circuits |
-| `test/Curated.t.sol` | 50 fork tests (BNB Smart Chain, X Layer or Base) |
+| `test/Curated.t.sol` | 56 fork tests (BNB Smart Chain, X Layer or Base), including token pricing with BEM on BNB Smart Chain |
 | `script/Launch.s.sol` | launch a collection from a manifest (run with the curator's key) |
 | `script/Demo.s.sol` | end-to-end demo on a local fork |
 | `web/index.html`, `web/app.js` | sale and verification page: two static files, read `site.json` and `manifest.json` next to them |
-| `web/run_e2e.sh` | browser end-to-end test of the page on a local fork (needs Playwright for Python and `ethers.umd.min.js` 6.13.4: `web/run_e2e.sh path/to/ethers.umd.min.js`) |
+| `web/run_e2e.sh` | browser end-to-end test of the page on a local fork (`E2E_TOKEN=1` prices the collection in a test ERC-20; needs Playwright for Python and `ethers.umd.min.js` 6.13.4: `web/run_e2e.sh path/to/ethers.umd.min.js`) |
 
 ## Setup
 
@@ -101,6 +103,7 @@ python3 tool/curate.py checkroot test/fixtures/my_manifest.json --rpc https://bs
   "saleStart": 1798200000, "saleEnd": 1798761600, "spareNand": 0, "spareLatch": 0,
   "limitPerWallet": true, "maxPerWallet": 3,
   "royalty": {"receiver": "0x…", "bps": 300},
+  "paymentToken": "0x… (optional ERC-20 for prices; omit for the native coin)",
   "presale": {"start": 1798000000, "allowlist": [{"address": "0x…", "quota": 2}]},
   "metadataURI": "ar://<43-character id of the directory>",
   "works": [
@@ -137,7 +140,7 @@ Copy `web/index.html`, `web/app.js`, the manifest (as `manifest.json`) and a `si
 - Publish the whole manifest before the sale opens: buyers need it for proofs, and verifiers need it to rebuild the root.
 - Four rounds of independent internal review found no critical issue; their findings are fixed (on-chain fixes have regression tests such as `test_H1_*`, `test_M1_*`, `test_L*`) or listed in the TAP's Security Considerations.
 - Free public BSC nodes keep recent state only, so long-lived `anvil` forks fail after about a minute; `forge test --fork-url` re-forks the latest block on every run, and `web/run_e2e.sh` forks from a node that keeps older state (`FORK_URL`, default `https://bsc-mainnet.public.blastapi.io`; `FORK_URL=https://rpc.xlayer.tech` or `https://mainnet.base.org` runs it on X Layer or Base).
-- `site.json` names the chain (`chainId`); the page knows how to add BNB Smart Chain, X Layer and Base to a wallet and shows prices in the chain's coin (`addChain` in `site.json` covers any other chain).
+- `site.json` names the chain (`chainId`); the page knows how to add BNB Smart Chain, X Layer and Base to a wallet and shows prices in the collection's payment token, or the chain's coin (`addChain` in `site.json` covers any other chain).
 - Not audited. Do not use with significant value before an independent audit.
 
 Licence: MIT (code), CC0 (TAP text).

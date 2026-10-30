@@ -4,6 +4,7 @@ pragma solidity ^0.8.24;
 import {ICuratedRegistry} from "./interfaces/ICuratedRegistry.sol";
 import {ITapeOutFactory, ITapeOutTransistors, ITapeOutCircuits} from "./interfaces/ITapeOut.sol";
 import {CuratedVault} from "./CuratedVault.sol";
+import {CuratedVaultDeployer} from "./CuratedVaultDeployer.sol";
 import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 
 /// @title CuratedRegistry
@@ -13,6 +14,8 @@ import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 /// and binds itself here. `bind` re-checks all of that on chain instead of trusting the vault.
 contract CuratedRegistry is ICuratedRegistry {
     ITapeOutFactory public immutable FACTORY;
+    /// @notice created by this registry; deploys vaults for this registry only
+    CuratedVaultDeployer public immutable DEPLOYER;
 
     /// @notice vaults deployed by this registry (only they may bind)
     mapping(address vault => bool) public isVault;
@@ -57,6 +60,7 @@ contract CuratedRegistry is ICuratedRegistry {
 
     constructor(ITapeOutFactory factory) {
         FACTORY = factory;
+        DEPLOYER = new CuratedVaultDeployer();
     }
 
     /// @notice Launch a curated collection in a single transaction.
@@ -69,7 +73,7 @@ contract CuratedRegistry is ICuratedRegistry {
         returns (address vault, address transistors, address circuits)
     {
         if (p.curator != msg.sender) revert CuratorMustLaunch();
-        CuratedVault v = new CuratedVault(this, p);
+        CuratedVault v = CuratedVault(payable(DEPLOYER.deploy(p)));
         vault = address(v);
         isVault[vault] = true;
         (transistors, circuits) = v.initialize{value: msg.value}(p, msg.sender);

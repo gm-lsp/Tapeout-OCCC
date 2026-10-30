@@ -73,9 +73,9 @@ nav.tabs button[aria-selected="true"] { color: var(--ink); border-bottom-color: 
 .panel { background: var(--sheet); border: 1px solid var(--rule); border-radius: 10px; padding: 22px 24px; }
 .phase { font-size: 22px; font-weight: 700; margin: 0 0 2px; }
 .phase-note { color: var(--ink-soft); margin: 0 0 16px; }
-dl.facts { display: grid; grid-template-columns: auto 1fr; gap: 6px 18px; margin: 0; }
+dl.facts { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 6px 18px; margin: 0; }
 dl.facts dt { color: var(--ink-soft); }
-dl.facts dd { margin: 0; }
+dl.facts dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
 .you { margin-top: 18px; padding-top: 16px; border-top: 1px dashed var(--rule); }
 .you p { margin: 4px 0; }
 
@@ -169,6 +169,7 @@ footer { color: var(--ink-soft); font-size: 14px; padding: 40px 0 48px; }
         <dl class="facts">
           <dt>已流片</dt><dd id="f-sold">—</dd>
           <dt>国库预留</dt><dd id="f-res">—</dd>
+          <dt>支付方式</dt><dd id="f-pay">—</dd>
           <dt>单钱包限额</dt><dd id="f-limit">—</dd>
           <dt>二级市场版税</dt><dd id="f-roy">—</dd>
           <dt>处理器</dt><dd class="mono" id="f-circuits">—</dd>

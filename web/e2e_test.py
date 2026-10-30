@@ -21,6 +21,14 @@ CIRCUITS = sys.argv[5]
 STRANGER = sys.argv[6]      # impersonated on anvil, holds no transistors
 MANIFEST = json.load(open(sys.argv[7]))
 CURATOR = sys.argv[8]       # impersonated on anvil; claims the reserved works
+TOKEN = os.environ.get("E2E_PAYMENT_TOKEN", "0x" + "00" * 20)   # set when the collection is priced in an ERC-20
+
+
+def MANIFEST_VAULT():
+    """The collection's vault: the first word of registry.collectionOf(circuits)."""
+    data = "0x3e94c904" + CIRCUITS[2:].lower().rjust(64, "0")
+    r = rpc("eth_call", [{"to": MANIFEST["registry"], "data": data}, "latest"])
+    return "0x" + r[26:66]
 
 
 def rpc(method, params):
@@ -116,6 +124,13 @@ with sync_playwright() as p:
     page.locator("#row-1 button").click()
     page.wait_for_function("document.querySelector('#row-1 .status').textContent.includes('已售出')", timeout=60000)
     check("public purchase of work 1", True)
+    if int(TOKEN, 16):
+        vault = MANIFEST_VAULT()
+        bal = int(rpc("eth_call", [{"to": TOKEN, "data": "0x70a08231" + vault[2:].lower().rjust(64, "0")}, "latest"]), 16)
+        want = int(MANIFEST["works"][0]["priceWei"]) + int(MANIFEST["works"][1]["priceWei"])
+        check("token prices: the vault holds both prices in the token", bal == want)
+        check("token prices: the page shows the token symbol", "MOCK" in page.inner_text("#f-pay")
+              and "MOCK" in page.inner_text("#row-2"))
     check("bought works are owned by the buyer", owner_of(1) == BUYER.lower() and owner_of(2) == BUYER.lower())
     check("reserved work has no buy button", page.locator("#row-5 button").count() == 0 and
           "国库预留" in page.inner_text("#row-5 .status"))

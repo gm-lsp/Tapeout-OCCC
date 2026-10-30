@@ -58,6 +58,12 @@ TAPEOUT_FACTORY = CHAINS[56]["factory"]   # kept for callers of earlier versions
 DEFAULT_DEPLOY_FEE, DEFAULT_PROTOCOL_FEE = CHAINS[56]["deployFee"], CHAINS[56]["protocolFee"]
 
 
+def _units(amount: int, decimals: int) -> str:
+    """An amount in a token's smallest unit, as a decimal string (no rounding)."""
+    whole, frac = divmod(amount, 10 ** decimals) if decimals else (amount, 0)
+    return str(whole) + ("." + str(frac).rjust(decimals, "0").rstrip("0") if frac else "")
+
+
 def chain_info(chain_id: int) -> dict:
     if chain_id not in CHAINS:
         known = ", ".join(str(k) + " " + v["name"] for k, v in CHAINS.items())
@@ -751,6 +757,28 @@ def build(spec_path: str, out_path: str, url: str | None = None) -> dict:
     if sale_end <= time.time():
         raise DesignError("saleEnd is in the past: the launch would revert")
 
+    # payment token (optional): an ERC-20 address; work prices ("priceWei") are then in its smallest unit.
+    # Omitted or the zero address = the chain's native coin. Tape-out and launch fees are always native.
+    payment_token = _addr(spec.get("paymentToken", "0x" + "00" * 20))
+    token_info = {"symbol": chain.get("coin", "native coin"), "decimals": 18}
+    if int(payment_token, 16) != 0:
+        if int(payment_token, 16) in (int(registry, 16), int(curator, 16)):
+            raise DesignError("paymentToken must be an ERC-20 contract")
+        if url:
+            if len(rpc_raw(url, "eth_getCode", [payment_token, "latest"])) <= 2:
+                raise DesignError(f"paymentToken {payment_token} has no code on chain {chain_id}")
+            try:
+                dec = int(rpc_call(url, payment_token, "0x" + sel("decimals()")), 16)
+                token_info = {"symbol": _token_symbol(rpc_call(url, payment_token, "0x" + sel("symbol()"))),
+                              "decimals": dec}
+            except (RuntimeError, ValueError) as exc:
+                raise DesignError(f"paymentToken {payment_token} does not answer decimals() and symbol()") from exc
+        else:
+            token_info = {"symbol": "?", "decimals": None}
+            warnings.append("paymentToken was not checked on chain: run build with --rpc")
+        warnings.append("prices are in the payment token; buyers also pay the tape-out fee in the native coin. "
+                        "The vault refuses tokens that do not deliver the exact amount (fee-on-transfer, rebasing)")
+
     # royalty declaration (optional): {"royalty": {"receiver": "0x..", "bps": 500}}  (300 = 3 %, at most 300)
     roy = spec.get("royalty") or {}
     royalty_receiver = _addr(roy.get("receiver", "0x" + "00" * 20))
@@ -801,6 +829,14 @@ def build(spec_path: str, out_path: str, url: str | None = None) -> dict:
     if metadata_uri == "" and any("meta" in w for w in works):
         warnings.append("works have images or descriptions but metadataURI is empty: run `curate.py metadata`, "
                         "upload the folder, set metadataURI and build again, or no wallet or market will see them")
+    if int(payment_token, 16) != 0 and token_info["decimals"] is not None:
+        dec, sym = token_info["decimals"], token_info["symbol"]
+        priced = [(w["index"], int(w["priceWei"])) for w in works if not w["reserved"]]
+        warnings.append("prices in " + sym + ": " + ", ".join(
+            f"#{i} {_units(p, dec)}" for i, p in priced[:20]) + (" …" if len(priced) > 20 else ""))
+        if any(p >= 10 ** (dec + 6) for _, p in priced):
+            warnings.append(f"some prices are a million {sym} or more: priceWei is in the token's smallest unit "
+                            f"({dec} decimals), check the spec")
     launch = {
         "name": spec["name"], "symbol": spec["symbol"], "story": spec.get("story", ""),
         "nandSupply": str(nand_supply), "latchSupply": str(latch_supply),
@@ -814,11 +850,12 @@ def build(spec_path: str, out_path: str, url: str | None = None) -> dict:
         "allowRoot": allow_root, "presaleStart": presale_start,
         "royaltyReceiver": royalty_receiver, "royaltyBps": royalty_bps,
         "titlesHash": hx(t_hash), "metadataURI": metadata_uri,
+        "paymentToken": payment_token, "paymentSymbol": token_info["symbol"], "paymentDecimals": token_info["decimals"],
         "metadataHash": hx(metadata_of(spec["name"], spec["symbol"], spec.get("story", ""), t_hash)),
         "launchValueWei": str(max_fees + mint_price * mint_batch),
     }
     manifest = {
-        "format": "curated-collection-manifest/5",
+        "format": "curated-collection-manifest/6",
         "chainId": chain_id, "registry": registry,
         "launch": launch,
         "totals": {"works": len(works), "publicWorks": len(works) - reserved_count, "reservedWorks": reserved_count,
@@ -950,6 +987,12 @@ def checkroot(manifest_path: str, url: str | None = None, registry: str | None =
             "limitPerWallet": bool(vget("LIMIT_PER_WALLET()")), "maxPerWallet": vget("MAX_PER_WALLET()"),
             "platform": hex(vget("PLATFORM()")), "platformBps": vget("PLATFORM_BPS()"),
         }
+        try:
+            chain["paymentToken"] = hex(vget("PAYMENT_TOKEN()"))
+        except RuntimeError as exc:
+            if "revert" not in str(exc).lower():
+                raise   # a node error, not an answer: do not guess
+            chain["paymentToken"] = None   # a vault of an earlier protocol version: native coin only
         mu = rpc_call(url, reg, "0x" + sel("metadataURIOf(address)") + cpad)
         if len(mu) < 130:
             raise DesignError(f"registry {reg} has no metadataURIOf: it is not a registry of this protocol version")
@@ -972,6 +1015,7 @@ def checkroot(manifest_path: str, url: str | None = None, registry: str | None =
              and chain["maxPerWallet"] == int(L.get("maxPerWallet", 0))),
             ("platform share", same_addr(chain["platform"], L.get("platform", "0x0"))
              and chain["platformBps"] == int(L.get("platformBps", 0))),
+            ("payment token", same_addr(chain["paymentToken"] or "0x0", L.get("paymentToken", "0x0"))),
         ]
         for name, ok in checks:
             if not ok:
@@ -1002,6 +1046,20 @@ def rpc_raw(url: str, method: str, params: list):
     if "error" in r:
         raise RuntimeError(r["error"])
     return r["result"]
+
+
+def _token_symbol(ret: str) -> str:
+    """Decode symbol(): an ABI string, or bytes32 (older tokens); "?" if neither."""
+    try:
+        if len(ret) >= 130 and int(ret[2:66], 16) == 32:
+            n = int(ret[66:130], 16)
+            if 0 < n <= 64 and len(ret) >= 130 + 2 * n:
+                return bytes.fromhex(ret[130:130 + 2 * n]).decode("utf-8", "replace")
+        if len(ret) == 66:
+            return bytes.fromhex(ret[2:]).rstrip(b"\0").decode("utf-8", "replace") or "?"
+    except ValueError:
+        pass
+    return "?"
 
 
 def rpc_call(url: str, to: str, data: str) -> str:
