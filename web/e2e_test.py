@@ -107,9 +107,19 @@ with sync_playwright() as p:
     page.click("#connect")
     page.wait_for_function("!document.getElementById('you').hidden")
     check("allowlisted wallet recognised", "你在白名单中" in page.inner_text("#you-presale"))
+    pre = MANIFEST.get("presaleTiers")
+    if pre:
+        check("the allowlisted wallet sees its own presale price", "预售" in page.inner_text("#row-0")
+              and "公售" in page.inner_text("#row-0"))
     page.locator("#row-0 button").click()
     page.wait_for_function("document.querySelector('#row-0 .status').textContent.includes('已售出')", timeout=60000)
     check("presale purchase of work 0", True)
+    if pre:
+        vault = MANIFEST_VAULT()
+        def owed(a):
+            return int(rpc("eth_call", [{"to": vault, "data": "0xdf18e047" + a[2:].lower().rjust(64, "0")}, "latest"]), 16)
+        paid = owed(MANIFEST["launch"]["curator"]) + owed(MANIFEST["launch"]["platform"])
+        check("the presale purchase paid the tier-0 presale price", paid == int(pre[0]["prices"][0]))
     check("presale quota used up", "还剩 0 件" in page.inner_text("#you-presale"))
     check("no more presale buttons", page.locator("td.act button").count() == 0)
     page.screenshot(path=f"{OUT}/2-after-presale.png", full_page=True)
@@ -127,7 +137,8 @@ with sync_playwright() as p:
     if int(TOKEN, 16):
         vault = MANIFEST_VAULT()
         bal = int(rpc("eth_call", [{"to": TOKEN, "data": "0x70a08231" + vault[2:].lower().rjust(64, "0")}, "latest"]), 16)
-        want = int(MANIFEST["works"][0]["priceWei"]) + int(MANIFEST["works"][1]["priceWei"])
+        first = (MANIFEST.get("presaleTiers") or [{"prices": [MANIFEST["works"][0]["priceWei"]]}])[0]["prices"][0]
+        want = int(first) + int(MANIFEST["works"][1]["priceWei"])   # work 0 at the presale price, work 1 public
         check("token prices: the vault holds both prices in the token", bal == want)
         check("token prices: the page shows the token symbol", "MOCK" in page.inner_text("#f-pay")
               and "MOCK" in page.inner_text("#row-2"))

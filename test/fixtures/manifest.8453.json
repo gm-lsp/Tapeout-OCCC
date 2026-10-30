@@ -1,5 +1,5 @@
 {
- "format": "curated-collection-manifest/6",
+ "format": "curated-collection-manifest/7",
  "chainId": 8453,
  "registry": "0x00000000000000000000000000000000c0dec0de",
  "launch": {
@@ -22,8 +22,9 @@
   "reservedCount": 2,
   "limitPerWallet": false,
   "maxPerWallet": 0,
-  "allowRoot": "0x0dae89de1a4ca756ce5193eff868e9d5989d84c022e9ed7a83c44bdcbc693d03",
+  "allowRoot": "0x5c613e24ee1ca9087c2a848a770031bd7520d52746d5ff57d3d64ae5302807a3",
   "presaleStart": 1,
+  "presalePriceRoot": "0xd4f7e198d05a065aae5f49d890756a1958d67b09ed1103c708d9e1018d59f800",
   "royaltyReceiver": "0x00000000000000000000000000000000000c0ffe",
   "royaltyBps": 300,
   "titlesHash": "0x87f76642e6753a03771d47b1cd8e0139a06c890ad01a3b747575852540f8f4d1",
@@ -212,17 +213,45 @@
   {
    "address": "0x00000000000000000000000000000000000a11ce",
    "quota": 2,
-   "leaf": "0xc43be1d4dd08f77404a0650f0abc71daeba5bb650e27b419b3e42885af253431",
+   "tier": 0,
+   "leaf": "0x737f8dbd5a0e0dba13e78a13341f41589a4abba8a96a39c3bced976e747adb82",
    "proof": [
-    "0x7e96328ee5fe111093f770f3b7611b703adc410a5a7f001961712e6b0e1b4ad0"
+    "0xda06da61b872bf52dec9e94a6db62b24263e0a32982f1b6c32d843e5b0775002"
    ]
   },
   {
    "address": "0x0000000000000000000000000000000000000b0b",
    "quota": 1,
-   "leaf": "0x7e96328ee5fe111093f770f3b7611b703adc410a5a7f001961712e6b0e1b4ad0",
+   "tier": 1,
+   "leaf": "0xda06da61b872bf52dec9e94a6db62b24263e0a32982f1b6c32d843e5b0775002",
    "proof": [
-    "0xc43be1d4dd08f77404a0650f0abc71daeba5bb650e27b419b3e42885af253431"
+    "0x737f8dbd5a0e0dba13e78a13341f41589a4abba8a96a39c3bced976e747adb82"
+   ]
+  }
+ ],
+ "presaleTiers": [
+  {
+   "name": "OG",
+   "prices": [
+    "5000000000000000",
+    "15000000000000000",
+    "30000000000000000",
+    "0",
+    "5000000000000000",
+    null,
+    null
+   ]
+  },
+  {
+   "name": "Friends",
+   "prices": [
+    "0",
+    "0",
+    "0",
+    "0",
+    "0",
+    null,
+    null
    ]
   }
  ]

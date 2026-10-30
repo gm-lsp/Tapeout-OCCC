@@ -21,14 +21,16 @@ const VAULT_ABI = [
   "function sold() view returns (uint32)", "function finalized() view returns (bool)", "function paused() view returns (bool)", "function reservedClaimed() view returns (uint32)",
   "function taken(uint256) view returns (bool)", "function remainingFor(address) view returns (bool,uint32)",
   "function presaleBought(address) view returns (uint32)", "function PAYMENT_TOKEN() view returns (address)",
+  "function PRESALE_PRICE_ROOT() view returns (bytes32)",
   "function buy(uint256,bytes,uint32,uint32,uint256,bytes32[],address) payable returns (uint256)",
-  "function buyPresale(uint256,bytes,uint32,uint32,uint256,bytes32[],address,uint32,bytes32[]) payable returns (uint256)",
+  "function buyPresale(uint256,bytes,uint32,uint32,uint256,bytes32[],address,uint32,uint32,bytes32[],uint256,bytes32[]) payable returns (uint256)",
   "function claimReserved(uint256,bytes,uint32,uint32,bytes32[]) payable returns (uint256)",
   "error SaleNotStarted()", "error SaleEnded()", "error AlreadyTaken()", "error InvalidProof()",
   "error WrongPayment(uint256)", "error WalletLimitReached(address)", "error RecipientMustBeBuyer()",
   "error NoPresale()", "error PresaleNotOpen()", "error NotAllowlisted()", "error PresaleQuotaUsed()",
   "error OnlyCurator()", "error ReservedQuotaUsed()", "error AlreadyFinalized()", "error IndexOutOfRange()", "error ZeroRecipient()",
   "error ReentrancyGuardReentrantCall()", "error SaleIsPaused()", "error TokenAmountMismatch(uint256,uint256)",
+  "error InvalidPresalePrice()", "error PresaleAbovePrice(uint256,uint256)",
 ];
 const ERC20_ABI = [
   "function symbol() view returns (string)", "function decimals() view returns (uint8)",
@@ -48,8 +50,10 @@ const ERR_TEXT = {
   ReservedQuotaUsed: "国库预留名额已经用完。", AlreadyFinalized: "发售已经收尾，剩余作品再也不能流片。",
   SaleIsPaused: "策展人暂停了销售，恢复后才能购买。",
   TokenAmountMismatch: "这个代币转账时扣了费或数额不符，发售合约拒收。",
+  InvalidPresalePrice: "预售价与链上锁定的价目表不一致，请刷新页面。", PresaleAbovePrice: "预售价不能高于公售价。",
 };
-const ALLOW_TAG = E.keccak256(E.toUtf8Bytes("TAP-curated-allowlist"));
+const ALLOW_TAG = E.keccak256(E.toUtf8Bytes("TAP-curated-allowlist-v2"));
+const PRESALE_TAG = E.keccak256(E.toUtf8Bytes("TAP-curated-presale-price"));
 const META_TAG = E.keccak256(E.toUtf8Bytes("TAP-curated-metadata"));
 const utf8Hash = (t) => E.keccak256(E.toUtf8Bytes(t));
 // same as CuratedVault.metadataOf: commits the name, symbol, story and every work title
@@ -118,9 +122,39 @@ function workLeaf(chainId, registry, curator, w) {
   return E.keccak256(inner);
 }
 function allowLeaf(chainId, registry, curator, a) {
-  const inner = E.keccak256(coder.encode(["uint256", "address", "address", "bytes32", "address", "uint32"],
-    [chainId, registry, curator, ALLOW_TAG, a.address, a.quota]));
+  const inner = E.keccak256(coder.encode(["uint256", "address", "address", "bytes32", "address", "uint32", "uint32"],
+    [chainId, registry, curator, ALLOW_TAG, a.address, a.quota, a.tier]));
   return E.keccak256(inner);
+}
+/** Presale price leaves share their first five words (chain, registry, curator, tag, work root): encode them once. */
+function presaleLeafMaker(chainId, registry, curator, root) {
+  const prefix = coder.encode(["uint256", "address", "address", "bytes32", "bytes32"], [chainId, registry, curator, PRESALE_TAG, root]);
+  const word = (n) => BigInt(n).toString(16).padStart(64, "0");
+  return (index, tier, price) => E.keccak256(E.keccak256(prefix + word(index) + word(tier) + word(price)));
+}
+/** The sorted-pair tree merkleRoot builds, kept whole: layers, and each leaf's position, for O(log n) proofs. */
+function merkleTree(leaves) {
+  const layers = [leaves.map((x) => x.toLowerCase()).sort()];
+  while (layers[layers.length - 1].length > 1) {
+    const layer = layers[layers.length - 1], next = [];
+    for (let i = 0; i < layer.length; i += 2) {
+      if (i + 1 === layer.length) { next.push(layer[i]); continue; }
+      const [a, b] = layer[i] < layer[i + 1] ? [layer[i], layer[i + 1]] : [layer[i + 1], layer[i]];
+      next.push(E.keccak256(E.concat([a, b])).toLowerCase());
+    }
+    layers.push(next);
+  }
+  const pos = new Map(layers[0].map((x, i) => [x, i]));
+  return {
+    root: layers[layers.length - 1][0] ?? E.ZeroHash,
+    proof(leaf) {
+      let p = pos.get(leaf.toLowerCase());
+      if (p === undefined) return null;
+      const out = [];
+      for (const layer of layers.slice(0, -1)) { if ((p ^ 1) < layer.length) out.push(layer[p ^ 1]); p = Math.floor(p / 2); }
+      return out;
+    },
+  };
 }
 function merkleRoot(leaves) {
   let layer = leaves.map((x) => x.toLowerCase()).sort();
@@ -156,7 +190,7 @@ function countGates(hex) {
   return p === b.length ? { nand, latch } : null;
 }
 /** Validates the untrusted manifest against the chain. Returns cleaned works and allowlist, or throws. */
-function checkManifest(m, cfg, col, allowRootOnChain) {
+function checkManifest(m, cfg, col, allowRootOnChain, presaleRootOnChain) {
   const chainId = BigInt(cfg.chainId);
   if (!m || typeof m !== "object" || !Array.isArray(m.works)) fail("清单格式不对。");
   if (!sameAddr(m.registry, cfg.registry)) fail("清单里的登记合约与本站配置不一致。");
@@ -186,7 +220,9 @@ function checkManifest(m, cfg, col, allowRootOnChain) {
 
   const allow = (Array.isArray(m.allowlist) ? m.allowlist : []).map((a, i) => {
     if (!a || !E.isAddress(a.address) || !Number.isSafeInteger(a.quota) || a.quota < 1) fail(`白名单第 ${i + 1} 项不合法。`);
-    return { address: E.getAddress(a.address), quota: a.quota, proof: Array.isArray(a.proof) ? a.proof.map(String) : [] };
+    const tier = a.tier ?? 0;
+    if (!Number.isSafeInteger(tier) || tier < 0) fail(`白名单第 ${i + 1} 项的档位不合法。`);
+    return { address: E.getAddress(a.address), quota: a.quota, tier, proof: Array.isArray(a.proof) ? a.proof.map(String) : [] };
   });
   if (new Set(allow.map((a) => a.address)).size !== allow.length) fail("白名单里有重复地址。");
   const aroot = allow.length ? merkleRoot(allow.map((a) => allowLeaf(chainId, cfg.registry, curator, a))) : E.ZeroHash;
@@ -194,12 +230,35 @@ function checkManifest(m, cfg, col, allowRootOnChain) {
   allow.forEach((a) => {
     if (!verifyProof(allowLeaf(chainId, cfg.registry, curator, a), a.proof, aroot)) fail(`白名单中 ${a.address} 的证明无效。`);
   });
+  // presale prices per allowlist tier: rebuild the price list and check it against the root the vault holds
+  let presale = null;
+  if (presaleRootOnChain !== E.ZeroHash) {
+    const tiers = m.presaleTiers;
+    if (!Array.isArray(tiers) || !tiers.length) fail("清单缺少预售价目表。");
+    const leaves = [];
+    const leafOf = presaleLeafMaker(chainId, cfg.registry, curator, col.root);
+    const table = tiers.map((t, ti) => {
+      if (!t || !Array.isArray(t.prices) || t.prices.length !== works.length) fail(`预售价第 ${ti + 1} 档不完整。`);
+      return { name: typeof t.name === "string" ? t.name : `第 ${ti + 1} 档`, prices: t.prices.map((pp, i) => {
+        const w = works[i];
+        if (w.reserved ? pp !== null : !/^\d+$/.test(String(pp))) fail(`预售价第 ${ti + 1} 档第 ${i} 件不合法。`);
+        if (pp === null) return null;
+        if (BigInt(pp) > BigInt(w.priceWei)) fail(`预售价第 ${ti + 1} 档第 ${i} 件高于公售价。`);
+        leaves.push(leafOf(i, ti, pp));
+        return String(pp);
+      }) };
+    });
+    const tree = merkleTree(leaves);
+    if (tree.root !== presaleRootOnChain.toLowerCase()) fail("清单里的预售价与链上锁定的预售价目表不一致。");
+    if (allow.some((a) => a.tier >= table.length)) fail("白名单里有没有预售价的档位。");
+    presale = { tiers: table, tree, leafOf };
+  } else if (allow.some((a) => a.tier !== 0)) fail("白名单有档位，但链上没有预售价目表。");
   const L = m.launch;
   if (typeof L.name !== "string" || typeof L.symbol !== "string" || typeof L.story !== "string") fail("清单缺少名称或介绍。");
   if (metadataOf(L.name, L.symbol, L.story, works.map((w) => w.title)) !== col.metadata.toLowerCase()) {
     fail("清单里的名称、介绍或作品标题与链上锁定的不一致。");
   }
-  return { works, allow, name: L.name, story: L.story };
+  return { works, allow, presale, name: L.name, story: L.story };
 }
 
 // ------------------------------------------------------------------ load
@@ -228,15 +287,21 @@ async function load() {
     S.vault.LIMIT_PER_WALLET(), S.vault.MAX_PER_WALLET(), S.circ.TAPEOUT_FEE(), S.reg.royaltyOf(S.cfg.circuits)]);
   if (!sameAddr(vreg, S.cfg.registry)) fail("发售合约不属于本站配置的登记合约。");
   // the payment token (vaults of earlier versions have none: native coin)
-  // a vault of an earlier version has no PAYMENT_TOKEN (the call reverts): native coin
-  const pt = await S.vault.PAYMENT_TOKEN().catch((e) => { if (e?.code === "CALL_EXCEPTION") return E.ZeroAddress; throw e; });
+  const pt = await S.vault.PAYMENT_TOKEN().catch((e) => {
+    if (e?.code === "CALL_EXCEPTION") fail("这个发售合约是旧版协议，本页面只支持当前版本。");
+    throw e;
+  });
   if (pt !== E.ZeroAddress) {
     const t = new E.Contract(pt, ERC20_ABI, S.rpc);
     const [sym, dec] = await Promise.all([t.symbol().catch(() => "代币"), t.decimals()]);
     S.token = { address: pt, symbol: String(sym).slice(0, 16) || "代币", decimals: Number(dec), c: t };
   }
   const raw = await (await fetch(S.cfg.manifest || "manifest.json", { cache: "no-store" })).json();
-  S.m = checkManifest(raw, S.cfg, S.col, ar);
+  const proot = await S.vault.PRESALE_PRICE_ROOT().catch((e) => {
+    if (e?.code === "CALL_EXCEPTION") fail("这个发售合约是旧版协议，本页面只支持当前版本。");
+    throw e;
+  });
+  S.m = checkManifest(raw, S.cfg, S.col, ar, proot);
   Object.assign(S, { saleStart: ss, saleEnd: se, presaleStart: ps, hasPresale: ar !== E.ZeroHash, limited: lim, max, fee });
 
   $("c-name").textContent = S.m.name; $("c-title").textContent = S.m.name; $("c-story").textContent = S.m.story;
@@ -294,9 +359,26 @@ async function refreshWallet() {
   else if (S.allow) {
     const used = await S.vault.presaleBought(S.wallet);
     S.presaleLeft = S.allow.quota - Number(used);
-    $("you-presale").textContent = `你在白名单中，预售额度 ${S.allow.quota} 件，还剩 ${Math.max(S.presaleLeft, 0)} 件。`;
+    const tierName = S.m.presale ? `（${S.m.presale.tiers[S.allow.tier].name}）` : "";
+    $("you-presale").textContent = `你在白名单中${tierName}，预售额度 ${S.allow.quota} 件，还剩 ${Math.max(S.presaleLeft, 0)} 件。`
+      + (S.m.presale && (S.phase === "presale" || S.phase === "soon") ? "作品表里显示的是你的预售价。" : "");
   } else $("you-presale").textContent = "你的钱包不在白名单中，可以在公开发售时购买。";
   $("you").hidden = false;
+}
+
+/** What the connected wallet pays for work `w` in the presale (the list price without a price list), or null. */
+function presalePrice(w) {
+  if (!S.allow) return null;
+  if (!S.m.presale) return w.priceWei;
+  const t = S.m.presale.tiers[S.allow.tier];
+  return t ? t.prices[w.index] ?? null : null;
+}
+/** The presale price and its proof, built only when buying. */
+function presaleOffer(w) {
+  const price = presalePrice(w);
+  if (price === null) return null;
+  if (!S.m.presale) return { price, proof: [] };
+  return { price, proof: S.m.presale.tree.proof(S.m.presale.leafOf(w.index, S.allow.tier, price)) };
 }
 
 function actionFor(w) {
@@ -338,7 +420,10 @@ function render() {
       el("td", { class: "mono", text: String(w.index) }),
       el("td", { text: w.title }),
       el("td", { class: "mono", text: `${intOrQ(w.nand)} NAND，${intOrQ(w.latch)} LATCH` }),
-      el("td", { text: w.reserved ? "不出售" : amount(w.priceWei) }),
+      el("td", { text: w.reserved ? "不出售" : (() => {
+        const pp = (S.phase === "presale" || S.phase === "soon") ? presalePrice(w) : null;
+        return pp !== null && pp !== w.priceWei ? `预售 ${amount(pp)}（公售 ${amount(w.priceWei)}）` : amount(w.priceWei);
+      })() }),
       el("td", { class: "status " + st.c, text: st.t }),
       cell);
     rows.append(tr);
@@ -417,7 +502,9 @@ async function tx(promise, status, waiting) {
   await t.wait();
 }
 function buy(w, kind, btn) {
-  const price = BigInt(w.priceWei);
+  const offer = kind === "presale" ? presaleOffer(w) : null;
+  if (kind === "presale" && !offer) { toast("你的白名单档位没有这件作品的预售价。", true); return; }
+  const price = BigInt(offer ? offer.price : w.priceWei);
   const value = S.token ? S.fee : price + S.fee;
   send(btn, `已购买「${w.title}」，作品已到你的钱包。`, async (v, status) => {
     if (S.token && price > 0n) {
@@ -432,7 +519,8 @@ function buy(w, kind, btn) {
       }
     }
     await tx(kind === "presale"
-      ? v.buyPresale(w.index, w.netlist, w.nIn, w.nOut, w.priceWei, w.proof, S.wallet, S.allow.quota, S.allow.proof, { value })
+      ? v.buyPresale(w.index, w.netlist, w.nIn, w.nOut, w.priceWei, w.proof, S.wallet, S.allow.quota, S.allow.tier,
+        S.allow.proof, offer.price, offer.proof, { value })
       : v.buy(w.index, w.netlist, w.nIn, w.nOut, w.priceWei, w.proof, S.wallet, { value }), status, "流片中…");
   });
 }

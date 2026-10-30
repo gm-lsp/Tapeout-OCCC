@@ -146,18 +146,19 @@ Merkle 根承诺的是“一组叶子”，而不是“恰好 `count` 件作品�
 2. 每次流片必须在同一笔交易里用 `tapeout` 返回的 id 调用 `certify`；
 3. 不得出售预留作品；预留作品必须只流片给发行时固定的国库（国库不得是 Vault、登记合约或登记合约的部署合约），总数不超过 `reserved`，并且只能在剩余晶体管被销毁（第 4 条）之前进行。进入国库后，预留作品就是一个普通电路，国库可以转让、赠送或空投，Vault 和登记合约对此不加任何限制；
 4. 除了流片，以及在以下时机把剩余晶体管转入销毁地址以外，不得转移、授权或销毁晶体管：全部 `count` 件作品都已流片；或者销售已经结束，并且预留作品已全部领取、或者已过了 Vault 中固定的宽限期。销售结束时没卖出的公开作品永远不能再流片，宽限期也有上限，所以一件卖不出去的作品不会让剩余晶体管永远无法销毁；而策展人忘了领取的预留作品，不会在销售结束时就丢失；
-5. 不得有所有者，也不得有在发行后修改根、数量、策展人、平台分成、国库、预留数量、支付资产或开售时间的函数。可以允许策展人暂停和恢复购买，并在销售尚未结束、Vault 尚未收尾时把销售结束时间往后推（不能提前）；不得允许任何人提前结束时间或重新打开已结束的销售；
+5. 不得有所有者，也不得有在发行后修改根、数量、策展人、平台分成、国库、预留数量、支付资产、预售价或开售时间的函数。可以允许策展人暂停和恢复购买，并在销售尚未结束、Vault 尚未收尾时把销售结束时间往后推（不能提前）；不得允许任何人提前结束时间或重新打开已结束的销售；
 6. 不得让发行者或任何人在发行交易内部购买作品（例如从退款回调里购买）；
 7. 应当在同一笔交易里把新电路转给买家指定的接收地址，并应当用“自行提取”的方式支付收入，同时允许无法接收支付资产的收款方把收入提到另一个地址。
 8. 可以用发行时固定的一种 ERC-20 代币（即支付资产）代替原生币为作品定价；TapeOut 的流片费和发行费仍用原生币支付。这样做的 Vault 必须能在链上读出这个代币，并且必须只在恰好收到该代币计的价格时才完成购买，这样收款方永远不会被记入没有到账的代币。
+9. 可以在公开发售前以自己的预售价（可以不同于作品清单价格）卖给白名单钱包。这样的预售价必须在发行时固定，并且 Vault 不得以高于作品清单价格的预售价出售任何作品。
 
-参考实现用 `buy(index, netlist, nIn, nOut, price, proof, recipient)`（`0x2a21357f`）销售。策展人可以用 `setPaused(bool)`（`0x16c38b3c`，事件 `SalePaused(bool)`）暂停和恢复购买（公开发售和预售都包括在内），也可以在当前结束时间到来之前，用 `extendSale(uint64 newEnd)`（`0xb69ee020`，事件 `SaleEndExtended(uint64 previousEnd, uint64 newEnd)`）把结束时间往后推；`SALE_END()`（`0x9aa0ff7b`）和 `paused()`（`0x5c975abb`）返回当前状态。这两项都不影响预留作品的领取、作品清单和价格，预留宽限期从当前的结束时间算起。以原生币计价时，买家须恰好支付 `price + circuits.TAPEOUT_FEE()`；`price` 在策展人和可选的平台之间分配（平台最多 10%）；只在固定的 `saleStart` 到 `saleEnd` 之间销售；只接收自己流片时新铸给自己的电路；每个收款方可以提给自己，也可以用 `withdrawTo` 提到别的地址。预留作品用 `claimReserved(index, netlist, nIn, nOut, proof)`（`0xfc451b6a`）领取，也可以用 `claimReservedBatch((uint256 index, bytes netlist, uint32 nIn, uint32 nOut, bytes32[] proof)[])`（`0x8549fef1`）一次领取多件（要么全部成功，要么全部失败）：只有策展人可以调用，每件只付流片费，公开开售前、发售中、销售结束后都可以领取，电路直接进入国库。`finalize()` 在以下时机销毁剩余晶体管：全部作品都已流片；或者销售已经结束，并且预留作品已全部领取、或已过 `RESERVE_GRACE`（30 天）。任何人都可以调用它，`finalizable()`（`0x107e8456`）返回现在能否调用。收尾之后任何作品都不能再流片，所以策展人仍应当在发行后尽早领取预留作品。
+参考实现用 `buy(index, netlist, nIn, nOut, price, proof, recipient)`（`0x2a21357f`）销售。策展人可以用 `setPaused(bool)`（`0x16c38b3c`，事件 `SalePaused(bool)`）暂停和恢复购买（公开发售和预售都包括在内），也可以在当前结束时间到来之前，用 `extendSale(uint64 newEnd)`（`0xb69ee020`，事件 `SaleEndExtended(uint64 previousEnd, uint64 newEnd)`）把结束时间往后推；`SALE_END()`（`0x9aa0ff7b`）和 `paused()`（`0x5c975abb`）返回当前状态。这两项都不影响预留作品的领取、作品清单和价格，预留宽限期从当前的结束时间算起。以原生币计价时，买家须恰好支付应付金额（`price`，预售时为 `presalePrice`）加上 `circuits.TAPEOUT_FEE()`；这笔金额在策展人和可选的平台之间分配（平台最多 10%）；只在固定的 `saleStart` 到 `saleEnd` 之间销售；只接收自己流片时新铸给自己的电路；每个收款方可以提给自己，也可以用 `withdrawTo` 提到别的地址。预留作品用 `claimReserved(index, netlist, nIn, nOut, proof)`（`0xfc451b6a`）领取，也可以用 `claimReservedBatch((uint256 index, bytes netlist, uint32 nIn, uint32 nOut, bytes32[] proof)[])`（`0x8549fef1`）一次领取多件（要么全部成功，要么全部失败）：只有策展人可以调用，每件只付流片费，公开开售前、发售中、销售结束后都可以领取，电路直接进入国库。`finalize()` 在以下时机销毁剩余晶体管：全部作品都已流片；或者销售已经结束，并且预留作品已全部领取、或已过 `RESERVE_GRACE`（30 天）。任何人都可以调用它，`finalizable()`（`0x107e8456`）返回现在能否调用。收尾之后任何作品都不能再流片，所以策展人仍应当在发行后尽早领取预留作品。
 
-参考 Vault 可以用 ERC-20 代币为作品定价：由最后一个发行参数 `paymentToken` 在发行时固定（`address(0)` 表示原生币，其他值只能是合约），用 `PAYMENT_TOKEN()`（`0x877c86fb`）读取。这时 `buy` 和 `buyPresale` 的 `msg.value` 须恰好等于 `circuits.TAPEOUT_FEE()`，`price` 用 `transferFrom` 从买家那里扣取，所以买家要先给 Vault 授权这笔价格；Vault 比较转账前后自己的代币余额，没有恰好收到 `price` 就以 `TokenAmountMismatch(expected, received)` 回滚，从而拒绝转账扣费之类的代币。免费作品不需要授权。策展人和平台的分成以该代币记账和提取（`withdraw`、`withdrawTo`）；`Purchased` 里的 `price` 以该代币的最小单位计。预留作品的领取、发行费和发行退款仍是原生币。作品清单的叶子（第 5 节）不包含代币：清单里的价格指集合支付资产的最小单位，所以一份作品清单只对应一种支付资产。参考登记合约在构造时创建一个 `CuratedVaultDeployer`（`DEPLOYER()`），由它保存 Vault 的创建代码并部署 Vault，使登记合约不超过合约大小上限；只有登记合约能调用它。
+参考 Vault 可以用 ERC-20 代币为作品定价：由最后一个发行参数 `paymentToken` 在发行时固定（`address(0)` 表示原生币，其他值只能是合约），用 `PAYMENT_TOKEN()`（`0x877c86fb`）读取。这时 `buy` 和 `buyPresale` 的 `msg.value` 须恰好等于 `circuits.TAPEOUT_FEE()`，应付金额（`price`，预售时为 `presalePrice`）用 `transferFrom` 从买家那里扣取，所以买家要先给 Vault 授权这笔价格；Vault 比较转账前后自己的代币余额，没有恰好收到这笔金额就以 `TokenAmountMismatch(expected, received)` 回滚，从而拒绝转账扣费之类的代币。免费作品不需要授权。策展人和平台的分成以该代币记账和提取（`withdraw`、`withdrawTo`）；`Purchased` 里的 `price` 以该代币的最小单位计。预留作品的领取、发行费和发行退款仍是原生币。作品清单的叶子（第 5 节）不包含代币：清单里的价格指集合支付资产的最小单位，所以一份作品清单只对应一种支付资产。参考登记合约在构造时创建一个 `CuratedVaultDeployer`（`DEPLOYER()`），由它保存 Vault 的创建代码并部署 Vault，使登记合约不超过合约大小上限；只有登记合约能调用它。
 
 参考实现还提供可选的单钱包限额，发行时以两个独立设置固定：`limitPerWallet`（`false` 表示不限制）和 `maxPerWallet`（限制数量，至少为 1，只在 `limitPerWallet` 为 `true` 时填写；两个设置不一致时发行回滚）。开启限额后，参考实现只卖给买家自己的钱包（`recipient == msg.sender`，否则回滚 `RecipientMustBeBuyer`），每次购买对该钱包计一次，达到限额的钱包不能再买。（只给买家计数，一个钱包就能替很多钱包买；连接收人也计数，任何人都能通过“替别人买”耗光陌生人的额度。）`remainingFor(wallet)` 返回是否有限额以及还剩几次。限额只管流片，不管之后的转账，也不管预留作品。它属于 Vault 的销售策略，不属于登记合约标准；和所有按地址计数的限制一样，它挡不住一个人使用多个钱包。
 
-参考实现还可以在公开发售前设置预售。发行时，策展人固定 `allowRoot`（白名单 `(钱包, 额度)` 的 Merkle 根）和 `presaleStart`（参考实现要求它不为 0 且早于 `saleStart`）；不设预售时两者都为 0。从 `presaleStart` 到 `saleStart` 之间，`buyPresale(index, netlist, nIn, nOut, price, proof, recipient, quota, allowProof)`（`0xdb7f4eca`）只卖给白名单钱包，每个钱包最多 `quota` 次，价格与清单相同；如果设了单钱包限额，也同样生效。白名单叶子为 `keccak256(bytes.concat(keccak256(abi.encode(uint256 chainId, address registry, address curator, bytes32 keccak256("TAP-curated-allowlist"), address wallet, uint32 quota))))`，其中的标签保证白名单叶子不会与作品叶子混淆。策展人应当把白名单与作品清单一起公开，方便任何人重建 `allowRoot`。
+参考实现还可以在公开发售前设置预售。发行时，策展人固定 `allowRoot`（白名单 `(钱包, 额度, 档位)` 的 Merkle 根）、`presaleStart`（参考实现要求它不为 0 且早于 `saleStart`；不设预售时两者都为 0），以及可选的 `presalePriceRoot`（最后一个发行参数，预售价目表 `(index, tier, presalePrice)` 的 Merkle 根），用 `PRESALE_PRICE_ROOT()`（`0xf6b2ed47`）读取。从 `presaleStart` 到 `saleStart` 之间，`buyPresale(index, netlist, nIn, nOut, price, proof, recipient, quota, tier, allowProof, presalePrice, presaleProof)`（`0xabb42724`）只卖给白名单钱包，每个钱包最多 `quota` 次；如果设了单钱包限额，也同样生效。`price` 和 `proof` 与 `buy` 相同，用来证明作品在作品清单里；`(msg.sender, quota, tier)` 须在白名单里。有预售价目表时，买家支付 `presalePrice`：它须能对 `(index, tier)` 证明（否则 `InvalidPresalePrice`），且不能高于 `price`（否则 `PresaleAbovePrice(presalePrice, price)`）；没有价目表时，`presalePrice` 须等于 `price`。实收金额、收款方的分成和 `Purchased` 里的 `price` 都是买家实际支付的数额，以支付资产计。档位让同一次预售可以给不同的白名单不同的价格（例如早期支持者名单和普通名单）；只有一套预售价时所有条目都用档位 0。白名单叶子为 `keccak256(bytes.concat(keccak256(abi.encode(uint256 chainId, address registry, address curator, bytes32 keccak256("TAP-curated-allowlist-v2"), address wallet, uint32 quota, uint32 tier))))`，预售价叶子为 `keccak256(bytes.concat(keccak256(abi.encode(uint256 chainId, address registry, address curator, bytes32 keccak256("TAP-curated-presale-price"), bytes32 root, uint256 index, uint32 tier, uint256 presalePrice))))`，其中 `root` 是集合作品清单的根，所以一张价目表只能用于为之生成的那个集合；标签让白名单叶子和预售价叶子互不混淆，它们的长度（7 个和 8 个字）又让二者与 9 个字的作品叶子互不混淆。没有白名单时，Vault 拒绝设置 `presalePriceRoot`。策展人应当把白名单和预售价目表与作品清单一起公开，方便任何人重建 `allowRoot` 和 `presalePriceRoot`，并核对没有一件作品的预售价高于它的价格。
 
 ### 7. 前端和市场
 
@@ -269,6 +270,7 @@ function tokenURI(uint256 id) public view returns (string memory) {
 - **为什么不做包装集合。** 包装集合（另发一个 ERC-721 包住官方电路）能让市场不接入也看到一个干净的集合，但它必须长期托管所有作品，风险集中；而且包装后电路归包装合约所有，买家会失去电路容器账户（ERC-6551）的控制权，在 TapeOut 上也不显示为持有人。登记合约什么资产都不持有。将来可以在这个登记合约之上再做可选的包装层。
 - **为什么 Merkle 根在发行时固定。** 这样整份作品清单和每件作品的价格在第一次销售前就已经确定，策展人不能事后加作品，也不能悄悄把某个设计换成另一版。
 - **为什么不要求与 tapeout.net 编辑器逐字节一致。** 官方身份来自被认证的流片，而不是重新推导网表。叶子承诺的就是 Vault 实际流片的字节。
+- **为什么预售价单独做一张价目表。** 项目常常用更低的价格回馈白名单，有时不同名单的价格还不一样。如果在每个作品叶子里再放一个价格，每件作品只能有一个预售价，作品清单的格式也要改；单独一张 `(index, tier, price)` 价目表不改作品清单，可以有任意多个档位、每件作品每档任意的绝对价格，并且和作品清单一样在发行时固定。Vault 在链上再核对一次预售价不高于作品自己的价格，所以出错或恶意的价目表也不会让预售比公开发售更贵。
 - **为什么价格可以用代币计，而流片费仍用原生币。** TapeOut 上的社区常常想用自己的代币（例如 BEM）而不是链的原生币发售。TapeOut 的 `tapeout` 和 `createCPU` 用原生币收费，本提案无法改变，所以代币发售仍需要一小笔原生币；Vault 把两者分开（`msg.value` 恰好是流片费），两者不会被混淆。代币是一个发行参数，而不是登记合约里的一张名单，所以不需要任何人审批代币，某条链以后出现的代币也不用部署任何东西就能使用；代价是策展人可能选了行为异常的代币，但这只影响那一个集合（见安全考虑）。要求恰好收到全额，是因为转账扣费的代币会让 Vault 给收款方记入从未收到的代币，导致最后一笔提取失败。
 - **为什么平台分成最多 10% 且没有管理员。** 发行工具常由平台替艺术家运行。限制分成上限并去掉所有管理权限，艺术家在发行后就不需要信任平台。
 
@@ -280,11 +282,11 @@ function tokenURI(uint256 id) public view returns (string memory) {
 
 ## 测试用例
 
-参考实现包含 58 个 Foundry 测试，可以在 BNB Smart Chain、X Layer 或 Base 的主网分叉上运行（`forge test --fork-url https://bsc-dataseed.bnbchain.org`、`https://rpc.xlayer.tech` 或 `https://mainnet.base.org`），测试会自动选用该链的工厂和为该链生成的作品清单。作品清单是参考工具生成的 7 个临时测试电路：翻转触发器（toggle）、4 位计数器、7 位 LFSR、异或门、一件 REF 作品（在 BNB Smart Chain 上引用创世 13 号电路并加一位奇偶校验输出；在 X Layer 和 Base 上引用处理器 `0x0565EA48CA41Ae559d8d491dbb0a9ec945DB551b` 的 1 号电路并加一个取反输出），以及两件预留给国库的作品（TAP-02 测试向量 `popcount8_3151` 和一个使用中文标题的与门）。2026-10-30 在三条链上全部通过（BEM 测试只在 BNB Smart Chain 上运行，其他链上跳过），各条链上的合约完全相同；下面的 gas 和费用数字来自 BNB Smart Chain（免费公共节点只保留近期状态，所以测试分叉的是最新区块，而不是固定区块）。测试如下：
+参考实现包含 64 个 Foundry 测试，可以在 BNB Smart Chain、X Layer 或 Base 的主网分叉上运行（`forge test --fork-url https://bsc-dataseed.bnbchain.org`、`https://rpc.xlayer.tech` 或 `https://mainnet.base.org`），测试会自动选用该链的工厂和为该链生成的作品清单。作品清单是参考工具生成的 7 个临时测试电路：翻转触发器（toggle）、4 位计数器、7 位 LFSR、异或门、一件 REF 作品（在 BNB Smart Chain 上引用创世 13 号电路并加一位奇偶校验输出；在 X Layer 和 Base 上引用处理器 `0x0565EA48CA41Ae559d8d491dbb0a9ec945DB551b` 的 1 号电路并加一个取反输出），以及两件预留给国库的作品（TAP-02 测试向量 `popcount8_3151` 和一个使用中文标题的与门）。2026-10-30 在三条链上全部通过（BEM 测试只在 BNB Smart Chain 上运行，其他链上跳过），各条链上的合约完全相同；下面的 gas 和费用数字来自 BNB Smart Chain（免费公共节点只保留近期状态，所以测试分叉的是最新区块，而不是固定区块）。测试如下：
 
 | 测试函数 | 测试 | 证明了什么 |
 |---|---|---|
-| `test_Launch_AtomicAndVerified` | 原子发行 | 一笔交易完成创建、铸完（非零单价，5 批）、绑定、锁定元数据目录、退回余款；438 万 gas；发行者实付正好是工具预测的工厂部署费和协议费，在 BNB Smart Chain 上共 0.0015 BNB（0.001 部署费 + 5 × 0.0001） |
+| `test_Launch_AtomicAndVerified` | 原子发行 | 一笔交易完成创建、铸完（非零单价，5 批）、绑定、锁定元数据目录、退回余款；444 万 gas；发行者实付正好是工具预测的工厂部署费和协议费，在 BNB Smart Chain 上共 0.0015 BNB（0.001 部署费 + 5 × 0.0001） |
 | `test_Launch_ZeroMintPrice` | 零单价发行 | 单价为 0 时同样可行 |
 | `test_Launch_RejectsBadParams` | 拒绝错误参数 | 平台分成超过 10%、销售结束时间不晚于开售时间、发行资金不足 |
 | `test_L2_LaunchFeeCap` | 发行费上限 | 费用超过发行者设定的上限时发行回滚 |
@@ -325,6 +327,12 @@ function tokenURI(uint256 id) public view returns (string memory) {
 | `test_Presale_Window` | 预售时间窗 | 预售从 `presaleStart` 开始，到公开发售开始时结束；之后所有人都可购买 |
 | `test_Presale_RespectsWalletLimit` | 预售也受单钱包限额 | 单钱包限额叠加在预售额度之上 |
 | `test_Presale_ParamsChecked` | 预售参数校验 | 没有白名单就不能设预售时间；预售必须早于公开发售 |
+| `test_PresalePrice_TiersPayTheirPrice` | 各档按自己的预售价付款 | 每个白名单档位付自己的预售价（样例第一档的 0 号作品半价，第二档只付流片费）；策展人和平台按实收记账，`Purchased` 带实收价；预售结束后 `buyPresale` 关闭，`buy` 按作品清单价格收费 |
+| `test_PresalePrice_ExactAmountForTheRightWork` | 价格叶子只对应自己的作品 | 一件作品的价格叶子不能用来买另一件；预售价更低时按公售价付款会被拒绝 |
+| `test_PresalePrice_FreeInTokenCollection` | 代币集合里的免费预售 | 代币计价的集合里，预售价为 0 时不需要授权，也不转任何代币 |
+| `test_PresalePrice_OnlyTheListedPriceForTheTier` | 只能用本档的价格 | 钱包不能用别档的价格、冒充别的档位，也不能付价目表里没有的价格 |
+| `test_PresalePrice_NeverAbovePublicPrice` | 预售价不高于公售价 | 价目表里某件作品的预售价高于作品清单价格时，链上以 `PresaleAbovePrice` 拒绝 |
+| `test_PresalePrice_NoListMeansListPrice` | 没有价目表就按清单价 | 没有预售价目表时预售只按作品清单价格出售；没有白名单却设了价目表，发行时被拒绝 |
 | `test_Limit_ParamsChecked` | 限额参数校验 | 开启限额却没填数量、或填了数量却没开启限额，都会被拒绝；限额可在链上查询 |
 | `test_Reserved_PublicCannotBuy` | 预留作品不能购买 | 无论价格为 0 还是其他价格，都买不到预留作品 |
 | `test_Reserved_CuratorClaimsToTreasury` | 策展人领取进国库 | 只有策展人能领取，开售前也可以；作品进入国库，是官方作品且标为预留，不产生收入，不能重复领取 |
@@ -349,7 +357,9 @@ function tokenURI(uint256 id) public view returns (string memory) {
 |---|---|
 | 作品叶子（第 5 节）：index 0，netlistHash `0x7ca496e2d18c48a09aea26fc7df653df9c3fa5a10cb1a2bb7ec311c8220130b2`，nIn 1，nOut 1，price 10¹⁶ wei，reserved false | `0x14358d2386912617595812f5484d92d4899a96129a8904f771b29454b0524156` |
 | 7 件作品的根（第 5 节） | `0x131d82b25cc3283cc417942e38b63e6d665024c75cc40c645602d13437af1949` |
-| 白名单叶子（第 6 节）：钱包 `0x00000000000000000000000000000000000a11ce`，额度 2 | `0xdecc2768d819e2e59a3b44125831aaf52623a661945407499fbaf406f8658755` |
+| 白名单叶子（第 6 节）：钱包 `0x00000000000000000000000000000000000a11ce`，额度 2，档位 0 | `0xdeb66b034020d2fbb32cbd21ed700f9d996d0b507f43af350630a4cdac5466ee` |
+| 预售价叶子（第 6 节）：上面的作品根，编号 0，档位 0，预售价 5 × 10¹⁵ wei | `0x5fb2da07b2b3ddca0143c094cdd8d8217b6aea6a74da439e4a0c4db241606b88` |
+| 样例的预售价目表的根（两档 × 五件公开作品，第 6 节） | `0xa8505c260c45ec9eae4581034acbf48c343f0b4d77b8227e4208026a927ad1fe` |
 | 7 个标题的 `titlesHash`（第 10 节） | `0x1ecdc691abff41d0c4b6f032dd9b4845349526520462790a1fcffac33215ba9a` |
 | `metadata`（第 10 节）：名称 `P05 Test Collection`、代号 `P5TEST`、样例中的介绍和上面的 `titlesHash` | `0x131a0d4c42d02f4d670b1f463011bea1aa93a04665aaadcb1fe32dd663cd218c` |
 | `isContentAddressed`（第 11 节）：`ipfs://QmYwAPJzv5CZsnA625s3Xf2nemtYgPpHdWEz79ojWnPbdG`、`ipfs://bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi`、`ar://bNbA3TEQVL60xlgCcqdz4ZPHFZ711cZ3hmkpGttDt_U`、`""` | true |
@@ -357,7 +367,7 @@ function tokenURI(uint256 id) public view returns (string memory) {
 
 工具自检通过全部 13 个 TAP-02 向量（5 个合法、8 个非法）和 200 个随机画布设计；另外跑了 6,000 个随机设计（含输入、常量、LATCH 反馈、打乱文件顺序、多输出），编码后的网表与画布图在 8–24 拍内的运行结果全部一致。在本地分叉上按真实流程做了端到端演示：部署登记合约，针对它生成清单（链上检查 REF 目标），以策展人身份发行（`script/Demo.s.sol`），购买两件作品，一次领取两件预留作品，再由另一个账户流片一个 REF 包装壳。`curate verify` 报告两件作品为官方且网表一致，预留作品为官方、预留且归国库所有，包装壳为非官方——尽管它的 `circuitInfo` 完全相同；`curate checkroot` 用公开的作品重建出的根与链上一致，国库地址和预留数量也一致。
 
-发售与验真页面（`web/index.html`）在 BNB Smart Chain、X Layer 和 Base 的本地分叉上用真实浏览器测试过（`web/run_e2e.sh`，26 项浏览器检查和一次链上 `checkroot`，三条链上全部通过；设置 `E2E_TOKEN=1` 时集合改用一个测试 ERC-20 计价，另有两项检查确认买家先授权、再用代币付款，且页面显示代币符号，在 BNB Smart Chain 和 X Layer 上通过）：能加载集合，发行清单与链上不一致时拒绝加载（哪怕只改了一件作品的价格、一个标题，或换了策展人）；已承诺的、含 HTML 的标题只显示为文字，不会执行脚本；在钱包里切换账户会断开连接；页面在自己的内容安全策略下正常运行；白名单钱包在预售期内购买直到额度用完；公开发售开始后再买一件，两件都归买家所有；预留作品不向买家提供购买按钮；策展人在发售期间领取一件预留作品进国库，销售结束后再领取另一件；验真页能报告官方作品的编号和网表一致性，能识别零成本 REF 包装壳并说明原因，能报告不存在的电路；在 390 像素宽的手机屏幕上布局正常。
+发售与验真页面（`web/index.html`）在 BNB Smart Chain、X Layer 和 Base 的本地分叉上用真实浏览器测试过（`web/run_e2e.sh`，28 项浏览器检查和一次链上 `checkroot`，三条链上全部通过，其中两项确认白名单钱包能看到并按自己档位的预售价付款；设置 `E2E_TOKEN=1` 时集合改用一个测试 ERC-20 计价，另有两项检查确认买家先授权、再用代币付款，且页面显示代币符号，在 BNB Smart Chain 和 X Layer 上通过）：能加载集合，发行清单与链上不一致时拒绝加载（哪怕只改了一件作品的价格、一个标题，或换了策展人）；已承诺的、含 HTML 的标题只显示为文字，不会执行脚本；在钱包里切换账户会断开连接；页面在自己的内容安全策略下正常运行；白名单钱包在预售期内看到并按自己的预售价购买，直到额度用完；公开发售开始后再买一件，两件都归买家所有；预留作品不向买家提供购买按钮；策展人在发售期间领取一件预留作品进国库，销售结束后再领取另一件；验真页能报告官方作品的编号和网表一致性，能识别零成本 REF 包装壳并说明原因，能报告不存在的电路；在 390 像素宽的手机屏幕上布局正常。
 
 工具还会拒绝含有“指向尚不存在的电路”或“引脚数不对”的 REF 的清单，并对纯 REF 作品发出警告（任何人都能流片它的同字节复制品）。
 
@@ -365,11 +375,11 @@ function tokenURI(uint256 id) public view returns (string memory) {
 
 代码仓库：<https://github.com/gm-lsp/Tapeout-OCCC/tree/bd711b3afc167ab09670d0cd1d291c56530d31ff>（MIT）
 - `src/CuratedRegistry.sol`：登记合约兼发行器（第 3、4 节）
-- `src/CuratedVault.sol`：Vault（第 6 节），参考实现为每件作品固定价格，用原生币或 ERC-20 计价
+- `src/CuratedVault.sol`：Vault（第 6 节），参考实现为每件作品固定价格，用原生币或 ERC-20 计价，并可按白名单档位设预售价
 - `src/CuratedVaultDeployer.sol`：为一个登记合约保存 Vault 的创建代码（第 4.1 条）
 - `src/interfaces/ICuratedRegistry.sol`：第 3、9、11 节的接口
 - `src/interfaces/ICircuitURIProvider.sol`：第 12 节建议 TapeOut 采用的接口
-- `tool/curate.py`：无依赖的 Python 工具，内置每条链的 TapeOut 工厂（`build` 会拒绝 RPC 不在规格所写链上的情况，`checkroot` 会核对登记合约的 `FACTORY()`）：TapeOut 画布 → TAP-02 网表编码（用 TAP-02 参考实现校验）、链上检查 REF 目标、晶体管计数、作品清单 Merkle 树与证明、元数据承诺、第 11 节目录所需的元数据文件（`metadata`）、发行清单与费用上限、重建根和元数据（`checkroot`）、链上验真（`verify`）
+- `tool/curate.py`：无依赖的 Python 工具，内置每条链的 TapeOut 工厂（`build` 会拒绝 RPC 不在规格所写链上的情况，`checkroot` 会核对登记合约的 `FACTORY()`）：TapeOut 画布 → TAP-02 网表编码（用 TAP-02 参考实现校验）、链上检查 REF 目标、晶体管计数、作品清单、白名单和预售价目表的 Merkle 树与证明（`allowproof`）、元数据承诺、第 11 节目录所需的元数据文件（`metadata`）、发行清单与费用上限、重建根和元数据（`checkroot`）、链上验真（`verify`）
 - `test/Curated.t.sol`、`script/Demo.s.sol`：上述测试与演示；`script/Launch.s.sol` 按清单发行集合
 - `web/index.html`、`web/app.js`、`web/run_e2e.sh`：发售与验真页面及其浏览器测试
 
@@ -400,7 +410,7 @@ TapeOut 工厂地址取自 TAP-10 的部署表。各链上登记合约的地址�
 - **先到先得。** 网表和证明都是公开的，开售后机器人可以立刻抢走 0 元或低价作品；两人也可能同时抢同一件，后到的交易回滚。盲盒或先承诺后揭示的发售方式可以避免这一点，并且可以基于同一个登记合约实现。
 - **预留作品。** 国库像持有普通电路一样持有预留作品，保护它们的是国库的私钥，建议使用多签钱包。预留作品可以一直领取到剩余晶体管被销毁为止：销售结束后，如果预留作品已全部领取，或者已过 `RESERVE_GRACE`，任何人都可以调用 `finalize` 销毁；到那时还没领取的预留作品会永久丢失。
 - **国库合约。** 预留作品用 `safeTransferFrom` 发给国库。如果国库是一个不接收 ERC-721 的合约，每次领取都会回滚，收尾后这些预留作品就丢失了。Safe 等多签钱包可以接收；策展人最好在发行后立即领取一件预留作品来确认。
-- **作品清单。** 叶子绑定的是链、登记合约和策展人，而不是某一个集合。策展人如果在第二个集合里重复使用同一份作品清单或白名单，每份证明在两个集合里都有效；工具最好为每个集合生成新的清单，前端以链 ID 和处理器地址识别集合，绝不用名称。
+- **作品清单。** 作品叶子和白名单叶子绑定的是链、登记合约和策展人，而不是某一个集合。策展人如果在第二个集合里重复使用同一份作品清单或白名单，每份证明在两个集合里都有效（预售价叶子还包含作品清单的根，所以价目表不会带到别的集合）；工具最好为每个集合生成新的清单，前端以链 ID 和处理器地址识别集合，绝不用名称。
 - **销售结束时间。** 销售结束前，未售出的作品都可以购买，剩余晶体管也一直留在 Vault 里。如果结束时间非常遥远（测试样例用的是 2100 年），剩余晶体管实际上永远不会被销毁；策展人最好设定合理的结束时间。
 - **收款方。** 收入需要收款方自己提取。如果收款方是一个既不能接收支付资产、也不能调用 `withdrawTo` 的合约，它自己的那份收入就会被锁住；Vault 只拒绝把 Vault 自己、登记合约和登记合约的部署合约设为收款方。
 - **支付代币。** 代币由策展人选择，登记合约不做审核。代币可能被暂停、把 Vault 或某个买家列入黑名单、被升级成别的行为，或者回调买家或收款方；这时该集合的购买或提取可能失败，已在 Vault 里的收入可能被卡住。官方身份、已售作品、作品清单和其他集合都不受影响。在购买之外直接转进 Vault 的代币无法拒收、也无法取回，会一直锁在里面（原生币则会被 `receive` 拒收）。每次购买和提取都有重入保护，并先更新状态再进行外部调用；恰好收到全额的检查会拒绝少于价格到账的代币。参考页面每次只授权一件作品的价格；更大的授权也只允许这个没有所有者的 Vault 扣款，而且只在授权人自己发起的购买中。前端最好显示集合使用的代币，并在用陌生代币购买前提醒。
@@ -410,7 +420,7 @@ TapeOut 工厂地址取自 TAP-10 的部署表。各链上登记合约的地址�
 - **费用变化。** Vault 在购买时读取 `TAPEOUT_FEE()`，费用变化会转给买家承担，而不会导致无法销售。
 - **网表大小。** BNB Smart Chain 主网上超过约 34,000 字节的流片会失败（其他链的区块 gas 上限可能不同），工具会拒绝。大作品应拆成子电路，再用 REF 组合。
 - **Merkle 叶子**做了双重哈希，内部节点无法被冒充为叶子。
-- **网页。** 页面把发行清单视为不可信数据：链、RPC、登记合约和处理器地址只从本站的 `site.json` 读取（网址参数只在本机测试时有效）；在链上核对 Vault 属于该登记合约；用发行清单重建每一件作品的叶子和白名单的根，任何一项与链上不一致就拒绝加载；发行清单里的所有内容都只作为文字插入；脚本从本站加载，并启用严格的内容安全策略；外部 ethers 库用子资源完整性（SRI）哈希锁定。在别的集合里是官方作品的电路，只会显示“不属于本集合”，绝不显示为官方。页面还会重建元数据承诺（第 10 节），名称、代号、介绍或标题与之不一致的发行清单一律拒绝加载。
+- **网页。** 页面把发行清单视为不可信数据：链、RPC、登记合约和处理器地址只从本站的 `site.json` 读取（网址参数只在本机测试时有效）；在链上核对 Vault 属于该登记合约；用发行清单重建每一件作品的叶子、白名单的根和预售价目表，任何一项与链上不一致就拒绝加载；发行清单里的所有内容都只作为文字插入；脚本从本站加载，并启用严格的内容安全策略；外部 ethers 库用子资源完整性（SRI）哈希锁定。在别的集合里是官方作品的电路，只会显示“不属于本集合”，绝不显示为官方。页面还会重建元数据承诺（第 10 节），名称、代号、介绍或标题与之不一致的发行清单一律拒绝加载。
 - **尚未审计。** 参考实现只做过内部复核。在独立审计之前，不宜用于承载大额资产。
 
 ## 版权

@@ -8,7 +8,8 @@ Commands
   build    <collection.json> <out> [--rpc URL]
                                     encode every work, resolve REF targets on chain, build the Merkle
                                     tree, write a launch manifest
-  allowproof <manifest> <address>   print an allowlisted wallet's presale quota and proof
+  allowproof <manifest> <address> [--index N | --all]   print an allowlisted wallet's presale quota, tier and
+                                    proof, and its presale price and price proof for work N (or every work)
   checkroot <manifest> [--rpc URL --registry ADDR --circuits ADDR]
                                     rebuild the root from every published work and compare it with the
                                     manifest and, if given, with the chain
@@ -433,10 +434,59 @@ def leaf_of(chain_id: int, registry: str, curator: str, index: int, netlist_hash
     return keccak256(inner)
 
 
-def allow_leaf_of(chain_id: int, registry: str, curator: str, wallet: str, quota: int) -> bytes:
-    """keccak256(bytes.concat(keccak256(abi.encode(chainid, registry, curator, ALLOW_TAG, wallet, quota))))"""
-    words = (chain_id, int(registry, 16), int(curator, 16), keccak256(b"TAP-curated-allowlist"), int(wallet, 16), quota)
+def allow_leaf_of(chain_id: int, registry: str, curator: str, wallet: str, quota: int, tier: int = 0) -> bytes:
+    """keccak256(bytes.concat(keccak256(abi.encode(chainid, registry, curator, ALLOW_TAG, wallet, quota, tier))))"""
+    words = (chain_id, int(registry, 16), int(curator, 16), keccak256(b"TAP-curated-allowlist-v2"), int(wallet, 16),
+             quota, tier)
     return keccak256(keccak256(b"".join(abi_word(x) for x in words)))
+
+
+def presale_price_leaf_of(chain_id: int, registry: str, curator: str, root: bytes, index: int, tier: int,
+                          price: int) -> bytes:
+    """keccak256(bytes.concat(keccak256(abi.encode(chainid, registry, curator, PRESALE_PRICE_TAG, root, index, tier,
+    price)))); `root` is the collection's work-list root, so a price list cannot be reused for another collection"""
+    prefix = b"".join(abi_word(x) for x in (chain_id, int(registry, 16), int(curator, 16),
+                                            keccak256(b"TAP-curated-presale-price"), root))
+    return keccak256(keccak256(prefix + abi_word(index) + abi_word(tier) + abi_word(price)))
+
+
+def _is_amount(x) -> bool:
+    return isinstance(x, str) and x.isascii() and x.isdecimal() and str(int(x)) == x
+
+
+def presale_price_leaves(chain_id: int, registry: str, curator: str, root: bytes, tiers: list, works: list) -> list:
+    """Every (tier, index, price) of the presale price list, tier by tier, in index order; reserved works have none."""
+    prefix = b"".join(abi_word(x) for x in (chain_id, int(registry, 16), int(curator, 16),
+                                            keccak256(b"TAP-curated-presale-price"), root))
+    out = []
+    for t, tier in enumerate(tiers):
+        for w, price in zip(works, tier["prices"]):
+            if price is not None:
+                leaf = keccak256(keccak256(prefix + abi_word(w["index"]) + abi_word(t) + abi_word(int(price))))
+                out.append((t, w["index"], int(price), leaf))
+    return out
+
+
+def presale_price_proofs(m: dict, tier: int, indexes: list) -> list:
+    """The presale price of each work in `indexes` for allowlist tier `tier`, with its proof against presalePriceRoot
+    (the tree is built once). Without presale prices the presale price is the work-list price and needs no proof."""
+    works = m["works"]
+    for i in indexes:
+        if not 0 <= i < len(works):
+            raise DesignError(f"there is no work {i} (the collection has {len(works)})")
+        if works[i]["reserved"]:
+            raise DesignError(f"work {i} is reserved: it is not sold in the presale")
+    tiers = m.get("presaleTiers")
+    if not tiers:
+        return [{"index": i, "presalePriceWei": works[i]["priceWei"], "presaleProof": []} for i in indexes]
+    if not 0 <= tier < len(tiers):
+        raise DesignError(f"tier {tier} has no presale prices (there are {len(tiers)} tiers)")
+    pl = presale_price_leaves(int(m["chainId"]), m["registry"], m["launch"]["curator"], unhex(m["launch"]["root"]),
+                              tiers, works)
+    _, proofs = merkle([x[3] for x in pl])
+    found = {i: (price, proof) for (t, i, price, _), proof in zip(pl, proofs) if t == tier}
+    return [{"index": i, "presalePriceWei": str(found[i][0]), "presaleProof": [hx(x) for x in found[i][1]]}
+            for i in indexes]
 
 
 def titles_hash(titles: list[str]) -> bytes:
@@ -554,11 +604,20 @@ def _hash_pair(a: bytes, b: bytes) -> bytes:
     return keccak256(a + b) if a < b else keccak256(b + a)
 
 
+def merkle_root(leaves: list[bytes]) -> bytes:
+    """The root of merkle(leaves), without building every proof."""
+    layer = sorted(leaves)
+    while len(layer) > 1:
+        layer = [_hash_pair(layer[i], layer[i + 1]) if i + 1 < len(layer) else layer[i] for i in range(0, len(layer), 2)]
+    return layer[0]
+
+
 def merkle(leaves: list[bytes]) -> tuple[bytes, list[list[bytes]]]:
     """Sorted-pair tree as verified by OpenZeppelin MerkleProof. Returns (root, proof per leaf)."""
     if not leaves:
         raise ValueError("no leaves")
     layers = [sorted(leaves)]
+    position = {leaf: i for i, leaf in enumerate(layers[0])}
     while len(layers[-1]) > 1:
         cur = layers[-1]
         nxt = [_hash_pair(cur[i], cur[i + 1]) if i + 1 < len(cur) else cur[i] for i in range(0, len(cur), 2)]
@@ -566,7 +625,7 @@ def merkle(leaves: list[bytes]) -> tuple[bytes, list[list[bytes]]]:
     root = layers[-1][0]
     proofs = []
     for leaf in leaves:
-        pos = layers[0].index(leaf)
+        pos = position[leaf]
         proof = []
         for layer in layers[:-1]:
             sib = pos ^ 1
@@ -788,8 +847,10 @@ def build(spec_path: str, out_path: str, url: str | None = None) -> dict:
     if (int(royalty_receiver, 16) == 0) != (royalty_bps == 0):
         raise DesignError("royalty needs both a receiver and a rate, or neither")
 
-    # presale allowlist (optional): {"presale": {"start": ts, "allowlist": [{"address": "0x..", "quota": 2}, ...]}}
+    # presale allowlist (optional): {"presale": {"start": ts, "allowlist": [{"address": "0x..", "quota": 2, "tier": 0}, ...],
+    #   "tiers": [{"name": "OG", "priceWei": "…", "prices": {"<index>": "…"}}, …]}}   ("tiers" optional)
     allowlist, allow_root, presale_start = [], "0x" + "00" * 32, 0
+    presale_tiers, presale_price_root = None, "0x" + "00" * 32
     pre = spec.get("presale")
     if pre is not None:
         if not isinstance(pre, dict) or "start" not in pre or not isinstance(pre.get("allowlist"), list):
@@ -799,6 +860,46 @@ def build(spec_path: str, out_path: str, url: str | None = None) -> dict:
             raise DesignError("presale.start must be a real time (unix seconds), not 0")
         if presale_start >= sale_start:
             raise DesignError("presale.start must be before saleStart (the presale ends when the public sale opens)")
+        tiers_spec = pre.get("tiers")
+        if tiers_spec is not None:
+            # presale prices per allowlist tier: absolute amounts, at most the work's public price, fixed at launch
+            if not isinstance(tiers_spec, list) or not 1 <= len(tiers_spec) <= 64:
+                raise DesignError("presale.tiers must be a list of 1 to 64 tiers")
+            presale_tiers = []
+            for t, ts in enumerate(tiers_spec):
+                if not isinstance(ts, dict):
+                    raise DesignError(f"presale.tiers[{t}] must be {{\"name\", \"priceWei\", \"prices\"}}")
+                unknown = set(ts) - {"name", "priceWei", "prices"}
+                if unknown:
+                    raise DesignError(f"presale.tiers[{t}] has unknown keys {sorted(unknown)}: use name, priceWei, prices")
+                name = ts.get("name", f"tier {t}")
+                if not isinstance(name, str):
+                    raise DesignError(f"presale.tiers[{t}].name must be text")
+                each = ts.get("prices", {})
+                if not isinstance(each, dict) or any(not (isinstance(k, str) and k.isascii() and k.isdecimal()
+                                                          and str(int(k)) == k and int(k) < len(works)) for k in each):
+                    raise DesignError(f"presale.tiers[{t}].prices must map work indexes (\"0\", \"1\", …) to prices")
+                default = None if "priceWei" not in ts else _uint(ts["priceWei"], f"presale.tiers[{t}].priceWei")
+                prices = []
+                for w in works:
+                    if w["reserved"]:
+                        if str(w["index"]) in each:
+                            raise DesignError(f"presale.tiers[{t}]: work {w['index']} is reserved and is not sold")
+                        prices.append(None)
+                        continue
+                    if str(w["index"]) in each:
+                        pp = _uint(each[str(w["index"])], f"presale.tiers[{t}] price of work {w['index']}")
+                    elif default is not None:
+                        # a tier-wide price never raises a work above its public price: cheaper works keep theirs
+                        pp = min(default, int(w["priceWei"]))
+                    else:
+                        pp = int(w["priceWei"])
+                    if pp > int(w["priceWei"]):
+                        raise DesignError(f"presale.tiers[{t}]: work {w['index']} costs {pp} in the presale, more than its "
+                                          f"public price {w['priceWei']}")
+                    prices.append(str(pp))
+                presale_tiers.append({"name": name, "prices": prices})
+        n_tiers = len(presale_tiers) if presale_tiers else 1
         seen = set()
         for e in pre["allowlist"]:
             if not isinstance(e, dict) or "address" not in e:
@@ -807,17 +908,26 @@ def build(spec_path: str, out_path: str, url: str | None = None) -> dict:
             q = e.get("quota")
             if not isinstance(q, int) or isinstance(q, bool) or not 1 <= q < 2**32:
                 raise DesignError(f"allowlist {a}: quota must be a whole number of at least 1")
+            tier = e.get("tier", 0)
+            if not isinstance(tier, int) or isinstance(tier, bool) or not 0 <= tier < n_tiers:
+                raise DesignError(f"allowlist {a}: tier must be 0" + (f" to {n_tiers - 1}" if n_tiers > 1 else "")
+                                  + (" (presale.tiers sets the tiers)" if presale_tiers is None and tier else ""))
             if a in seen:
                 raise DesignError(f"allowlist {a} appears twice")
             seen.add(a)
-            allowlist.append({"address": a, "quota": q,
-                              "leaf": hx(allow_leaf_of(chain_id, registry, curator, a, q))})
+            allowlist.append({"address": a, "quota": q, "tier": tier,
+                              "leaf": hx(allow_leaf_of(chain_id, registry, curator, a, q, tier))})
         if not allowlist:
             raise DesignError("presale is set but the allowlist is empty")
         r, ps = merkle([unhex(e["leaf"]) for e in allowlist])
         for e, p in zip(allowlist, ps):
             e["proof"] = [hx(x) for x in p]
         allow_root = hx(r)
+        if presale_tiers is not None:
+            pl = presale_price_leaves(chain_id, registry, curator, root, presale_tiers, works)
+            if not pl:
+                raise DesignError("presale.tiers is set but every work is reserved: nothing is sold in the presale")
+            presale_price_root = hx(merkle_root([x[3] for x in pl]))
     for k in ("name", "symbol", "story"):
         if not isinstance(spec.get(k, ""), str):
             raise DesignError(f"{k} must be text")
@@ -847,7 +957,7 @@ def build(spec_path: str, out_path: str, url: str | None = None) -> dict:
         "maxLaunchFees": str(max_fees),
         "treasury": treasury, "reservedCount": reserved_count,
         "limitPerWallet": limit_per_wallet, "maxPerWallet": max_per_wallet,
-        "allowRoot": allow_root, "presaleStart": presale_start,
+        "allowRoot": allow_root, "presaleStart": presale_start, "presalePriceRoot": presale_price_root,
         "royaltyReceiver": royalty_receiver, "royaltyBps": royalty_bps,
         "titlesHash": hx(t_hash), "metadataURI": metadata_uri,
         "paymentToken": payment_token, "paymentSymbol": token_info["symbol"], "paymentDecimals": token_info["decimals"],
@@ -855,7 +965,7 @@ def build(spec_path: str, out_path: str, url: str | None = None) -> dict:
         "launchValueWei": str(max_fees + mint_price * mint_batch),
     }
     manifest = {
-        "format": "curated-collection-manifest/6",
+        "format": "curated-collection-manifest/7",
         "chainId": chain_id, "registry": registry,
         "launch": launch,
         "totals": {"works": len(works), "publicWorks": len(works) - reserved_count, "reservedWorks": reserved_count,
@@ -864,6 +974,7 @@ def build(spec_path: str, out_path: str, url: str | None = None) -> dict:
         "warnings": warnings,
         "works": works,
         "allowlist": allowlist,
+        "presaleTiers": presale_tiers,
     }
     with open(out_path, "w", encoding="utf-8") as f:
         json.dump(manifest, f, indent=1, ensure_ascii=False)
@@ -932,10 +1043,11 @@ def checkroot(manifest_path: str, url: str | None = None, registry: str | None =
     if al:
         for e in al:
             if not (isinstance(e.get("address"), str) and isinstance(e.get("quota"), int)
-                    and not isinstance(e.get("quota"), bool) and e["quota"] >= 1):
+                    and not isinstance(e.get("quota"), bool) and e["quota"] >= 1
+                    and isinstance(e.get("tier", 0), int) and not isinstance(e.get("tier", 0), bool) and e.get("tier", 0) >= 0):
                 raise DesignError(f"allowlist entry {e.get('address')}: a field is missing or has the wrong type")
-        aleaves = [allow_leaf_of(int(m["chainId"]), m["registry"], L["curator"], e["address"], int(e["quota"]))
-                   for e in al]
+        aleaves = [allow_leaf_of(int(m["chainId"]), m["registry"], L["curator"], e["address"], int(e["quota"]),
+                                 int(e.get("tier", 0))) for e in al]
         aroot = merkle(aleaves)[0]
         if hx(aroot) != L["allowRoot"].lower():
             problems.append("the published allowlist does not rebuild allowRoot")
@@ -944,6 +1056,37 @@ def checkroot(manifest_path: str, url: str | None = None, registry: str | None =
                 problems.append(f"allowlist {e['address']}: its published proof does not verify")
     elif int(L.get("allowRoot", "0x0"), 16) != 0:
         problems.append("allowRoot is set but no allowlist is published")
+
+    # presale prices: rebuild the price list root, and check every price against the work's public price
+    tiers = m.get("presaleTiers")
+    want_proot = L.get("presalePriceRoot", "0x" + "00" * 32).lower()
+    if tiers:
+        ok_shape = isinstance(tiers, list) and all(isinstance(t, dict) and isinstance(t.get("prices"), list)
+                                                   and len(t["prices"]) == len(works) for t in tiers)
+        if not ok_shape:
+            problems.append("presaleTiers must list one price (or null for a reserved work) per work for every tier")
+        else:
+            for t, tier in enumerate(tiers):
+                for w, pp in zip(works, tier["prices"]):
+                    if (pp is None) != bool(w["reserved"]):
+                        problems.append(f"presale tier {t}: work {w['index']} must have a price exactly when it is not reserved")
+                    elif pp is not None and not _is_amount(pp):
+                        problems.append(f"presale tier {t}: work {w['index']} has a presale price that is not a whole number")
+                    elif pp is not None and int(pp) > int(w["priceWei"]):
+                        problems.append(f"presale tier {t}: work {w['index']} has a presale price above its public price")
+            if not any("presale tier" in x for x in problems):
+                pl = presale_price_leaves(int(m["chainId"]), m["registry"], L["curator"], root, tiers, works)
+                if not pl or hx(merkle_root([x[3] for x in pl])) != want_proot:
+                    problems.append("the published presale prices do not rebuild presalePriceRoot")
+            bad = [e["address"] for e in al if int(e.get("tier", 0)) >= len(tiers)]
+            if bad:
+                problems.append(f"allowlist entries with a tier that has no prices: {', '.join(bad[:5])}")
+    elif int(want_proot, 16) != 0:
+        problems.append("presalePriceRoot is set but no presale prices are published")
+    elif any(int(e.get("tier", 0)) != 0 for e in al):
+        problems.append("allowlist entries have tiers but no presale prices are published")
+    if int(want_proot, 16) != 0 and int(L.get("allowRoot", "0x0"), 16) == 0:
+        problems.append("presalePriceRoot is set without an allowlist: the launch would revert")
 
     out = {"rebuiltRoot": hx(root), "manifestRoot": L["root"], "count": len(works),
            "reservedIndexes": reserved_idx, "allowlistEntries": len(al)}
@@ -988,11 +1131,12 @@ def checkroot(manifest_path: str, url: str | None = None, registry: str | None =
             "platform": hex(vget("PLATFORM()")), "platformBps": vget("PLATFORM_BPS()"),
         }
         try:
+            chain["presalePriceRoot"] = "0x" + hex(vget("PRESALE_PRICE_ROOT()"))[2:].rjust(64, "0")
             chain["paymentToken"] = hex(vget("PAYMENT_TOKEN()"))
         except RuntimeError as exc:
             if "revert" not in str(exc).lower():
-                raise   # a node error, not an answer: do not guess
-            chain["paymentToken"] = None   # a vault of an earlier protocol version: native coin only
+                raise   # a node error, not an answer
+            raise DesignError(f"vault {vault} is from an earlier protocol version; this tool checks the current one only") from exc
         mu = rpc_call(url, reg, "0x" + sel("metadataURIOf(address)") + cpad)
         if len(mu) < 130:
             raise DesignError(f"registry {reg} has no metadataURIOf: it is not a registry of this protocol version")
@@ -1011,11 +1155,12 @@ def checkroot(manifest_path: str, url: str | None = None, registry: str | None =
             ("sale start", chain["saleStart"] == int(L["saleStart"])),
             ("presale start", chain["presaleStart"] == int(L.get("presaleStart", 0))),
             ("allowlist root", chain["allowRoot"] == L.get("allowRoot", "0x" + "00" * 32).lower()),
+            ("presale price root", chain["presalePriceRoot"] == want_proot),
             ("per-wallet limit", chain["limitPerWallet"] == bool(L.get("limitPerWallet", False))
              and chain["maxPerWallet"] == int(L.get("maxPerWallet", 0))),
             ("platform share", same_addr(chain["platform"], L.get("platform", "0x0"))
              and chain["platformBps"] == int(L.get("platformBps", 0))),
-            ("payment token", same_addr(chain["paymentToken"] or "0x0", L.get("paymentToken", "0x0"))),
+            ("payment token", same_addr(chain["paymentToken"], L.get("paymentToken", "0x0"))),
         ]
         for name, ok in checks:
             if not ok:
@@ -1197,6 +1342,8 @@ def main(argv=None):
     p = sp.add_parser("encode"); p.add_argument("design")
     p = sp.add_parser("build"); p.add_argument("spec"); p.add_argument("out"); p.add_argument("--rpc")
     p = sp.add_parser("allowproof"); p.add_argument("manifest"); p.add_argument("address")
+    p.add_argument("--index", type=int)
+    p.add_argument("--all", action="store_true", help="presale price and proof for every work the wallet can buy")
     p = sp.add_parser("checkroot"); p.add_argument("manifest"); p.add_argument("--rpc")
     p.add_argument("--registry"); p.add_argument("--circuits")
     p = sp.add_parser("proof"); p.add_argument("manifest"); p.add_argument("index", type=int)
@@ -1219,7 +1366,12 @@ def main(argv=None):
         m = json.load(open(a.manifest, encoding="utf-8"))
         want = _addr(a.address)
         hit = [e for e in m.get("allowlist", []) if e["address"] == want]
-        print(json.dumps(hit[0] if hit else {"address": want, "allowlisted": False}, indent=1))
+        out = dict(hit[0]) if hit else {"address": want, "allowlisted": False}
+        if hit and (a.index is not None or a.all):
+            want = [w["index"] for w in m["works"] if not w["reserved"]] if a.all else [a.index]
+            pp = presale_price_proofs(m, int(hit[0].get("tier", 0)), want)
+            out["presale"] = pp if a.all else pp[0]
+        print(json.dumps(out, indent=1))
     elif a.cmd == "checkroot":
         print(json.dumps(checkroot(a.manifest, a.rpc, a.registry, a.circuits), indent=1))
     elif a.cmd == "proof":

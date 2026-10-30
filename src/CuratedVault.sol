@@ -37,7 +37,7 @@ contract CuratedVault is ReentrancyGuard, ICircuitURIProvider {
         uint32 reservedCount; // number of works marked reserved in the work list; fixed at launch
         bool limitPerWallet; // false = no per-wallet limit; true = at most maxPerWallet public works per wallet
         uint32 maxPerWallet; // the limit when limitPerWallet is true (at least 1); must be 0 when it is false
-        bytes32 allowRoot; // Merkle root of the presale allowlist (wallet, quota); bytes32(0) = no presale
+        bytes32 allowRoot; // Merkle root of the presale allowlist (wallet, quota, tier); bytes32(0) = no presale
         uint64 presaleStart; // unix time when the presale opens; must be before saleStart; 0 when there is no presale
         address royaltyReceiver; // optional royalty declaration for resales (ERC-2981 style); address(0) = none
         uint16 royaltyBps; // royalty rate in basis points, at most the registry's MAX_ROYALTY_BPS; 0 when none
@@ -45,14 +45,17 @@ contract CuratedVault is ReentrancyGuard, ICircuitURIProvider {
         string metadataURI; // content-addressed directory of <index>.json metadata files ("ipfs://<CID>" or "ar://<id>"); "" = none
         address paymentToken; // ERC-20 that work prices are paid in; address(0) = the chain's native coin. Tape-out fees
         // are always paid in the native coin
+        bytes32 presalePriceRoot; // Merkle root of presale prices (index, tier, price); bytes32(0) = presale at the work-list price
     }
 
     uint16 public constant MAX_PLATFORM_BPS = 1000; // 10%
     address public constant BURN = 0x000000000000000000000000000000000000dEaD;
     uint256 internal constant NAND = 0;
     uint256 internal constant LATCH = 1;
-    /// @dev domain tag of allowlist leaves, so an allowlist leaf can never equal a work leaf
-    bytes32 public constant ALLOW_TAG = keccak256("TAP-curated-allowlist");
+    /// @dev domain tag of allowlist leaves (wallet, quota, tier), so an allowlist leaf can never equal a work leaf
+    bytes32 public constant ALLOW_TAG = keccak256("TAP-curated-allowlist-v2");
+    /// @dev domain tag of presale price leaves (index, tier, price)
+    bytes32 public constant PRESALE_PRICE_TAG = keccak256("TAP-curated-presale-price");
     /// @dev domain tag of the collection metadata commitment
     bytes32 public constant METADATA_TAG = keccak256("TAP-curated-metadata");
     /// @notice after the sale ends, unclaimed reserved works can still be claimed for this long before
@@ -76,6 +79,8 @@ contract CuratedVault is ReentrancyGuard, ICircuitURIProvider {
     uint32 public immutable MAX_PER_WALLET;
     bytes32 public immutable ALLOW_ROOT;
     uint64 public immutable PRESALE_START;
+    /// @notice Merkle root of the presale price list; bytes32(0) = presale buyers pay the work-list price
+    bytes32 public immutable PRESALE_PRICE_ROOT;
 
     ITapeOutCircuits public circuits;
     ITapeOutTransistors public transistors;
@@ -131,6 +136,8 @@ contract CuratedVault is ReentrancyGuard, ICircuitURIProvider {
     error NotAllowlisted();
     error PresaleQuotaUsed();
     error TokenAmountMismatch(uint256 expected, uint256 received);
+    error InvalidPresalePrice();
+    error PresaleAbovePrice(uint256 presalePrice, uint256 price);
 
     constructor(CuratedRegistry registry, LaunchParams memory p) {
         if (p.curator == address(0)) revert BadParams("curator");
@@ -173,6 +180,8 @@ contract CuratedVault is ReentrancyGuard, ICircuitURIProvider {
         MAX_PER_WALLET = p.maxPerWallet;
         ALLOW_ROOT = p.allowRoot;
         PRESALE_START = p.presaleStart;
+        if (p.presalePriceRoot != bytes32(0) && p.allowRoot == bytes32(0)) revert BadParams("presalePriceRoot");
+        PRESALE_PRICE_ROOT = p.presalePriceRoot;
     }
 
     // ------------------------------------------------------------------ launch
@@ -271,12 +280,27 @@ contract CuratedVault is ReentrancyGuard, ICircuitURIProvider {
         );
     }
 
-    /// @notice The Merkle leaf of a presale allowlist entry: `wallet` may buy up to `quota` works in the presale.
+    /// @notice The Merkle leaf of a presale allowlist entry: `wallet` may buy up to `quota` works in the presale, at
+    /// the presale prices of allowlist tier `tier`.
     /// Bound to this chain, this registry and this curator, and tagged so it can never be confused with a work.
-    function allowLeafOf(address wallet, uint32 quota) public view returns (bytes32) {
+    function allowLeafOf(address wallet, uint32 quota, uint32 tier) public view returns (bytes32) {
         return keccak256(
             bytes.concat(
-                keccak256(abi.encode(block.chainid, address(REGISTRY), CURATOR, ALLOW_TAG, wallet, quota))
+                keccak256(abi.encode(block.chainid, address(REGISTRY), CURATOR, ALLOW_TAG, wallet, quota, tier))
+            )
+        );
+    }
+
+    /// @notice Leaf of the presale price list: work `index` costs `presalePrice` for allowlist tier `tier`. The leaf is
+    /// bound to this collection's work-list root, so a price list can never be reused for another collection.
+    function presalePriceLeafOf(uint256 index, uint32 tier, uint256 presalePrice) public view returns (bytes32) {
+        return keccak256(
+            bytes.concat(
+                keccak256(
+                    abi.encode(
+                        block.chainid, address(REGISTRY), CURATOR, PRESALE_PRICE_TAG, ROOT, index, tier, presalePrice
+                    )
+                )
             )
         );
     }
@@ -292,12 +316,15 @@ contract CuratedVault is ReentrancyGuard, ICircuitURIProvider {
         address recipient
     ) external payable nonReentrant returns (uint256 tokenId) {
         if (block.timestamp < SALE_START) revert SaleNotStarted();
-        return _sell(index, netlist, nIn, nOut, price, proof, recipient);
+        return _sell(index, netlist, nIn, nOut, price, price, proof, recipient);
     }
 
-    /// @notice Buy work `index` in the presale, as an allowlisted wallet (msg.sender) with `quota` presale purchases.
-    /// Each presale purchase uses one unit of the payer's quota, whoever the recipient is. The per-wallet limit,
-    /// if any, applies as well. After the public sale opens, allowlisted wallets buy with `buy` like everyone else.
+    /// @notice Buy work `index` in the presale, as an allowlisted wallet (msg.sender) with `quota` presale purchases
+    /// in allowlist tier `tier`. `price` and `proof` prove the work as in `buy`. With a presale price list, the buyer
+    /// pays `presalePrice`, proven for (index, tier) by `presaleProof`, which may not exceed `price`; without one,
+    /// `presalePrice` must equal `price`. Each presale purchase uses one unit of the payer's quota, whoever the
+    /// recipient is. The per-wallet limit, if any, applies as well. After the public sale opens, allowlisted wallets
+    /// buy with `buy` at the work-list price like everyone else.
     function buyPresale(
         uint256 index,
         bytes calldata netlist,
@@ -307,16 +334,28 @@ contract CuratedVault is ReentrancyGuard, ICircuitURIProvider {
         bytes32[] calldata proof,
         address recipient,
         uint32 quota,
-        bytes32[] calldata allowProof
+        uint32 tier,
+        bytes32[] calldata allowProof,
+        uint256 presalePrice,
+        bytes32[] calldata presaleProof
     ) external payable nonReentrant returns (uint256 tokenId) {
         if (ALLOW_ROOT == bytes32(0)) revert NoPresale();
         if (block.timestamp < PRESALE_START || block.timestamp >= SALE_START) revert PresaleNotOpen();
-        if (!MerkleProof.verifyCalldata(allowProof, ALLOW_ROOT, allowLeafOf(msg.sender, quota))) {
+        if (!MerkleProof.verifyCalldata(allowProof, ALLOW_ROOT, allowLeafOf(msg.sender, quota, tier))) {
             revert NotAllowlisted();
+        }
+        if (PRESALE_PRICE_ROOT == bytes32(0)) {
+            if (presalePrice != price) revert InvalidPresalePrice();
+        } else {
+            if (!MerkleProof.verifyCalldata(presaleProof, PRESALE_PRICE_ROOT, presalePriceLeafOf(index, tier, presalePrice)))
+            {
+                revert InvalidPresalePrice();
+            }
+            if (presalePrice > price) revert PresaleAbovePrice(presalePrice, price);
         }
         if (presaleBought[msg.sender] >= quota) revert PresaleQuotaUsed();
         presaleBought[msg.sender] += 1;
-        return _sell(index, netlist, nIn, nOut, price, proof, recipient);
+        return _sell(index, netlist, nIn, nOut, price, presalePrice, proof, recipient);
     }
 
     function _sell(
@@ -325,6 +364,7 @@ contract CuratedVault is ReentrancyGuard, ICircuitURIProvider {
         uint32 nIn,
         uint32 nOut,
         uint256 price,
+        uint256 charge,
         bytes32[] calldata proof,
         address recipient
     ) internal returns (uint256 tokenId) {
@@ -338,8 +378,8 @@ contract CuratedVault is ReentrancyGuard, ICircuitURIProvider {
             revert InvalidProof();
         }
         uint256 fee = circuits.TAPEOUT_FEE();
-        // native coin: price + tape-out fee in msg.value; token: the tape-out fee in msg.value, the price pulled below
-        uint256 due = PAYMENT_TOKEN == address(0) ? price + fee : fee;
+        // native coin: charge + tape-out fee in msg.value; token: the tape-out fee in msg.value, the charge pulled below
+        uint256 due = PAYMENT_TOKEN == address(0) ? charge + fee : fee;
         if (msg.value != due) revert WrongPayment(due);
 
         // effects
@@ -351,25 +391,25 @@ contract CuratedVault is ReentrancyGuard, ICircuitURIProvider {
         }
         taken[index] = true;
         sold += 1;
-        uint256 cut = (price * PLATFORM_BPS) / 10_000;
+        uint256 cut = (charge * PLATFORM_BPS) / 10_000;
         if (cut > 0) owed[PLATFORM] += cut;
-        owed[CURATOR] += price - cut;
+        owed[CURATOR] += charge - cut;
 
         // interactions
-        if (PAYMENT_TOKEN != address(0) && price > 0) {
+        if (PAYMENT_TOKEN != address(0) && charge > 0) {
             // only tokens that deliver exactly the amount sent: fee-on-transfer and rebasing tokens are refused
             IERC20 token = IERC20(PAYMENT_TOKEN);
             uint256 before = token.balanceOf(address(this));
-            token.safeTransferFrom(msg.sender, address(this), price);
+            token.safeTransferFrom(msg.sender, address(this), charge);
             uint256 afterwards = token.balanceOf(address(this));
-            if (afterwards < before || afterwards - before != price) {
-                revert TokenAmountMismatch(price, afterwards > before ? afterwards - before : 0);
+            if (afterwards < before || afterwards - before != charge) {
+                revert TokenAmountMismatch(charge, afterwards > before ? afterwards - before : 0);
             }
         }
         tokenId = circuits.tapeout{value: fee}(netlist, nIn, nOut);
         REGISTRY.certify(address(circuits), tokenId, index, netlistHash, false);
         circuits.safeTransferFrom(address(this), recipient, tokenId);
-        emit Purchased(index, tokenId, recipient, price);
+        emit Purchased(index, tokenId, recipient, charge);
     }
 
     function _countWallet(address w) internal {

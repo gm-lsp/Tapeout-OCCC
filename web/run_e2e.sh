@@ -48,7 +48,10 @@ s = json.load(open(sys.argv[5]))
 if int(sys.argv[6], 16):
     s["paymentToken"] = sys.argv[6]
 s.update(registry=reg, curator=cur, saleStart=now + 3600, saleEnd=now + 30 * 86400,
-         presale={"start": now - 60, "allowlist": [{"address": buyer, "quota": 1}]})
+         presale={"start": now - 60, "allowlist": [{"address": buyer, "quota": 1, "tier": 0}],
+                  "tiers": s.get("presale", {}).get("tiers")})
+if s["presale"]["tiers"] is None:
+    del s["presale"]["tiers"]
 # hostile text that the curator really published (and committed on chain): it must render as plain text
 s["works"][2]["title"] = '<img src=x onerror="window.__xss=1">'
 s["story"] = '<script>window.__xss=2</script> test story'

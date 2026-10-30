@@ -46,6 +46,8 @@ contract Demo is Script {
         p.metadataURI = vm.parseJsonString(m, ".launch.metadataURI");
         // native coin (address(0)) unless the manifest names an ERC-20 for the prices
         if (vm.keyExistsJson(m, ".launch.paymentToken")) p.paymentToken = vm.parseJsonAddress(m, ".launch.paymentToken");
+        // presale at the work-list price unless the manifest has a presale price list
+        if (vm.keyExistsJson(m, ".launch.presalePriceRoot")) p.presalePriceRoot = vm.parseJsonBytes32(m, ".launch.presalePriceRoot");
 
         vm.startBroadcast(pk);
         (address v,, address c) = reg.launch{value: vm.parseJsonUint(m, ".launch.launchValueWei")}(p);

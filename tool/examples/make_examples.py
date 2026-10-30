@@ -196,9 +196,13 @@ def main(chain=56):
         # optional royalty declaration for resales; markets decide whether to pay it
         "royalty": {"receiver": "0x00000000000000000000000000000000000C0FFE", "bps": 300},
         # optional presale: allowlisted wallets buy first, each up to its quota
+        # with per-tier presale prices (absolute amounts, at most the public price; omitted works keep the public price)
         "presale": {"start": 1, "allowlist": [
-            {"address": "0x00000000000000000000000000000000000A11CE", "quota": 2},
-            {"address": "0x0000000000000000000000000000000000000B0B", "quota": 1},
+            {"address": "0x00000000000000000000000000000000000A11CE", "quota": 2, "tier": 0},
+            {"address": "0x0000000000000000000000000000000000000B0B", "quota": 1, "tier": 1},
+        ], "tiers": [
+            {"name": "OG", "prices": {"0": "5000000000000000", "1": "15000000000000000"}},
+            {"name": "Friends", "priceWei": "0"},
         ]},
         # the directory of <index>.json metadata files, fixed at launch (test value: nothing is uploaded there)
         "metadataURI": "ar://" + "P05TestMetadataDirectory_NotUploaded_0000000"[:43],

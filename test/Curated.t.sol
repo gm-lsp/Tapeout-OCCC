@@ -213,6 +213,7 @@ contract CuratedForkTest is Test {
         p.titlesHash = vm.parseJsonBytes32(manifest, ".launch.titlesHash");
         p.metadataURI = vm.parseJsonString(manifest, ".launch.metadataURI");
         p.paymentToken = vm.parseJsonAddress(manifest, ".launch.paymentToken");
+        p.presalePriceRoot = vm.parseJsonBytes32(manifest, ".launch.presalePriceRoot");
     }
 
     struct Work {
@@ -903,6 +904,7 @@ contract CuratedForkTest is Test {
     struct Allow {
         address wallet;
         uint32 quota;
+        uint32 tier;
         bytes32[] proof;
     }
 
@@ -910,7 +912,76 @@ contract CuratedForkTest is Test {
         string memory key = string.concat(".allowlist[", vm.toString(k), "]");
         a.wallet = vm.parseJsonAddress(manifest, string.concat(key, ".address"));
         a.quota = uint32(vm.parseJsonUint(manifest, string.concat(key, ".quota")));
+        a.tier = uint32(vm.parseJsonUint(manifest, string.concat(key, ".tier")));
         a.proof = vm.parseJsonBytes32Array(manifest, string.concat(key, ".proof"));
+    }
+
+    // ------------------------------------------------------------------ presale price list (rebuilt here, independently
+    // of the tool: every (tier, index, price) leaf from the manifest's table, a sorted-pair tree as OpenZeppelin verifies)
+
+    function _tierCount() internal view returns (uint256 n) {
+        while (vm.keyExistsJson(manifest, string.concat(".presaleTiers[", vm.toString(n), "]"))) n++;
+    }
+
+    function _tierPrice(uint256 t, uint256 i) internal view returns (uint256) {
+        return vm.parseJsonUint(manifest, string.concat(".presaleTiers[", vm.toString(t), "].prices[", vm.toString(i), "]"));
+    }
+
+    function _presaleLeaves() internal view returns (bytes32[] memory leaves) {
+        uint256 nt = _tierCount();
+        uint256 open;
+        for (uint256 i; i < count; i++) if (!_work(i).reserved) open++;
+        leaves = new bytes32[](nt * open);
+        uint256 k;
+        for (uint256 t; t < nt; t++) {
+            for (uint256 i; i < count; i++) {
+                if (_work(i).reserved) continue;
+                // forge-lint: disable-next-line(unsafe-typecast)
+                leaves[k++] = vault.presalePriceLeafOf(i, uint32(t), _tierPrice(t, i));
+            }
+        }
+    }
+
+    function _sortedTree(bytes32[] memory leaves) internal pure returns (bytes32[][] memory layers) {
+        for (uint256 a = 1; a < leaves.length; a++) {
+            for (uint256 b = a; b > 0 && leaves[b - 1] > leaves[b]; b--) {
+                (leaves[b - 1], leaves[b]) = (leaves[b], leaves[b - 1]);
+            }
+        }
+        uint256 depth = 1;
+        for (uint256 n = leaves.length; n > 1; n = (n + 1) / 2) depth++;
+        layers = new bytes32[][](depth);
+        layers[0] = leaves;
+        for (uint256 d = 1; d < depth; d++) {
+            bytes32[] memory cur = layers[d - 1];
+            bytes32[] memory nxt = new bytes32[]((cur.length + 1) / 2);
+            for (uint256 j; j < cur.length; j += 2) {
+                if (j + 1 == cur.length) nxt[j / 2] = cur[j];
+                else nxt[j / 2] = cur[j] < cur[j + 1]
+                    ? keccak256(abi.encode(cur[j], cur[j + 1])) : keccak256(abi.encode(cur[j + 1], cur[j]));
+            }
+            layers[d] = nxt;
+        }
+    }
+
+    /// The presale price of work `i` for `tier`, and its proof (none when the vault has no presale price list).
+    function _pp(uint256 i, uint32 tier) internal view returns (uint256 price, bytes32[] memory proof) {
+        if (vault.PRESALE_PRICE_ROOT() == bytes32(0)) return (_work(i).price, new bytes32[](0));
+        price = _tierPrice(tier, i);
+        bytes32 leaf = vault.presalePriceLeafOf(i, tier, price);
+        bytes32[][] memory layers = _sortedTree(_presaleLeaves());
+        uint256 pos;
+        while (layers[0][pos] != leaf) pos++;
+        bytes32[] memory tmp = new bytes32[](layers.length);
+        uint256 n;
+        for (uint256 d; d + 1 < layers.length; d++) {
+            uint256 sib = pos ^ 1;
+            if (sib < layers[d].length) tmp[n++] = layers[d][sib];
+            pos /= 2;
+        }
+        proof = new bytes32[](n);
+        for (uint256 j; j < n; j++) proof[j] = tmp[j];
+        assertEq(layers[layers.length - 1][0], vault.PRESALE_PRICE_ROOT(), "presale price root rebuilt");
     }
 
     /// presale open now, public sale in one day
@@ -923,19 +994,188 @@ contract CuratedForkTest is Test {
 
     function _presaleBuy(Allow memory a, address payer, uint256 i, uint32 quota) internal returns (uint256 id) {
         Work memory w = _work(i);
+        (uint256 pp, bytes32[] memory pproof) = _pp(i, a.tier);
         vm.deal(payer, 10 ether);
         vm.prank(payer);
-        id = vault.buyPresale{value: w.price + fee}(
-            w.index, w.netlist, w.nIn, w.nOut, w.price, w.proof, payer, quota, a.proof
+        id = vault.buyPresale{value: pp + fee}(
+            w.index, w.netlist, w.nIn, w.nOut, w.price, w.proof, payer, quota, a.tier, a.proof, pp, pproof
         );
     }
 
     function _presaleExpect(Allow memory a, address payer, uint256 i, uint32 quota, bytes memory err) internal {
         Work memory w = _work(i);
+        (uint256 pp, bytes32[] memory pproof) = _pp(i, a.tier);
         vm.deal(payer, 10 ether);
         vm.prank(payer);
         vm.expectRevert(err);
-        vault.buyPresale{value: w.price + fee}(w.index, w.netlist, w.nIn, w.nOut, w.price, w.proof, payer, quota, a.proof);
+        vault.buyPresale{value: pp + fee}(
+            w.index, w.netlist, w.nIn, w.nOut, w.price, w.proof, payer, quota, a.tier, a.proof, pp, pproof
+        );
+    }
+
+    event Purchased(uint256 indexed index, uint256 indexed tokenId, address indexed recipient, uint256 price);
+
+    /// Each allowlist tier pays its own presale price, fixed at launch; the payout and the event use what was paid.
+    function test_PresalePrice_TiersPayTheirPrice() public {
+        _launchPresale();
+        Allow memory alice = _allow(0); // tier 0 (OG)
+        Allow memory bob = _allow(1); // tier 1 (Friends: everything free in the presale)
+        assertEq(alice.tier, 0);
+        assertEq(bob.tier, 1);
+        (uint256 pa,) = _pp(0, 0);
+        assertEq(pa, _work(0).price / 2, "OG pays half for work 0");
+        uint256 owedBefore = vault.owed(curator);
+        vm.expectEmit(true, false, true, true, address(vault));
+        emit Purchased(0, 0, alice.wallet, pa);
+        uint256 id = _presaleBuy(alice, alice.wallet, 0, alice.quota);
+        assertEq(C.ownerOf(id), alice.wallet);
+        uint256 cut = (pa * vault.PLATFORM_BPS()) / 10_000;
+        assertEq(vault.owed(curator) - owedBefore, pa - cut, "curator credited with the presale price");
+        // a free presale price: the buyer pays only the tape-out fee
+        (uint256 pb,) = _pp(1, 1);
+        assertEq(pb, 0);
+        vm.deal(bob.wallet, 10 ether);
+        uint256 bal = bob.wallet.balance;
+        Work memory w = _work(1);
+        (, bytes32[] memory pproof) = _pp(1, 1);
+        vm.prank(bob.wallet);
+        vault.buyPresale{value: fee}(w.index, w.netlist, w.nIn, w.nOut, w.price, w.proof, bob.wallet, bob.quota, 1, bob.proof, 0, pproof);
+        assertEq(bal - bob.wallet.balance, fee);
+        assertEq(vault.owed(vault.PLATFORM()), cut, "the platform's share is of the presale price");
+        // after the presale, buyPresale is closed and buy charges the work-list price
+        vm.warp(vault.SALE_START());
+        Work memory w2 = _work(2);
+        (, bytes32[] memory p2) = _pp(2, 1);
+        vm.prank(bob.wallet);
+        vm.expectRevert(CuratedVault.PresaleNotOpen.selector);
+        vault.buyPresale{value: fee}(w2.index, w2.netlist, w2.nIn, w2.nOut, w2.price, w2.proof, bob.wallet, bob.quota, 1, bob.proof, 0, p2);
+        vm.prank(bob.wallet);
+        vault.buy{value: w2.price + fee}(w2.index, w2.netlist, w2.nIn, w2.nOut, w2.price, w2.proof, bob.wallet);
+        assertEq(vault.owed(curator) - owedBefore, pa - cut + w2.price - (w2.price * vault.PLATFORM_BPS()) / 10_000);
+    }
+
+    /// A price leaf only fits its own work, and the buyer pays exactly the presale price: no more, no less.
+    function test_PresalePrice_ExactAmountForTheRightWork() public {
+        _launchPresale();
+        Allow memory alice = _allow(0);
+        Work memory w0 = _work(0);
+        (uint256 p3, bytes32[] memory proof3) = _pp(3, 0); // work 3 (free) for tier 0
+        assertEq(p3, 0);
+        vm.deal(alice.wallet, 10 ether);
+        // work 3's free price leaf presented for work 0
+        vm.prank(alice.wallet);
+        vm.expectRevert(CuratedVault.InvalidPresalePrice.selector);
+        vault.buyPresale{value: fee}(
+            w0.index, w0.netlist, w0.nIn, w0.nOut, w0.price, w0.proof, alice.wallet, alice.quota, 0, alice.proof, p3, proof3
+        );
+        // paying the public price when the presale price is lower is refused, not kept
+        (uint256 pa, bytes32[] memory pproof) = _pp(0, 0);
+        vm.prank(alice.wallet);
+        vm.expectRevert(abi.encodeWithSelector(CuratedVault.WrongPayment.selector, pa + fee));
+        vault.buyPresale{value: w0.price + fee}(
+            w0.index, w0.netlist, w0.nIn, w0.nOut, w0.price, w0.proof, alice.wallet, alice.quota, 0, alice.proof, pa, pproof
+        );
+    }
+
+    /// In a token collection a free presale price needs no approval and moves no tokens.
+    function test_PresalePrice_FreeInTokenCollection() public {
+        MockToken tok = new MockToken();
+        CuratedVault.LaunchParams memory p = _params();
+        p.paymentToken = address(tok);
+        p.presaleStart = uint64(block.timestamp);
+        p.saleStart = uint64(block.timestamp + 1 days);
+        _launchWith(p);
+        Allow memory bob = _allow(1);
+        Work memory w = _work(0);
+        (uint256 pb, bytes32[] memory pproof) = _pp(0, 1);
+        assertEq(pb, 0);
+        vm.deal(bob.wallet, 1 ether);
+        vm.prank(bob.wallet);
+        uint256 id = vault.buyPresale{value: fee}(
+            w.index, w.netlist, w.nIn, w.nOut, w.price, w.proof, bob.wallet, bob.quota, 1, bob.proof, 0, pproof
+        );
+        assertEq(C.ownerOf(id), bob.wallet);
+        assertEq(tok.balanceOf(address(vault)), 0);
+        assertEq(vault.owed(curator), 0);
+    }
+
+    /// A wallet cannot use another tier's price or another tier, nor a price that is not in the list.
+    function test_PresalePrice_OnlyTheListedPriceForTheTier() public {
+        _launchPresale();
+        Allow memory alice = _allow(0);
+        Work memory w = _work(0);
+        (uint256 friends, bytes32[] memory friendsProof) = _pp(0, 1); // tier 1's (free) price for work 0
+        vm.deal(alice.wallet, 10 ether);
+        // alice (tier 0) presents tier 1's price: the price leaf is for tier 1, so it does not verify for tier 0
+        vm.prank(alice.wallet);
+        vm.expectRevert(CuratedVault.InvalidPresalePrice.selector);
+        vault.buyPresale{value: friends + fee}(
+            w.index, w.netlist, w.nIn, w.nOut, w.price, w.proof, alice.wallet, alice.quota, 0, alice.proof, friends, friendsProof
+        );
+        // alice claims tier 1: her allowlist leaf says tier 0
+        vm.prank(alice.wallet);
+        vm.expectRevert(CuratedVault.NotAllowlisted.selector);
+        vault.buyPresale{value: friends + fee}(
+            w.index, w.netlist, w.nIn, w.nOut, w.price, w.proof, alice.wallet, alice.quota, 1, alice.proof, friends, friendsProof
+        );
+        // an unlisted lower price
+        (uint256 pa, bytes32[] memory pproof) = _pp(0, 0);
+        vm.prank(alice.wallet);
+        vm.expectRevert(CuratedVault.InvalidPresalePrice.selector);
+        vault.buyPresale{value: pa - 1 + fee}(
+            w.index, w.netlist, w.nIn, w.nOut, w.price, w.proof, alice.wallet, alice.quota, 0, alice.proof, pa - 1, pproof
+        );
+        assertEq(vault.presaleBought(alice.wallet), 0);
+    }
+
+    /// Even a listed presale price above the public price is refused on chain.
+    function test_PresalePrice_NeverAbovePublicPrice() public {
+        CuratedVault.LaunchParams memory p = _params();
+        p.presaleStart = uint64(block.timestamp);
+        p.saleStart = uint64(block.timestamp + 1 days);
+        Work memory w = _work(0);
+        uint256 high = w.price + 1;
+        // a one-leaf list (the root is the leaf) that prices work 0 above its public price for tier 0
+        p.presalePriceRoot = keccak256(bytes.concat(keccak256(abi.encode(
+            block.chainid, REG, curator, keccak256("TAP-curated-presale-price"), p.root, uint256(0), uint32(0), high
+        ))));
+        _launchWith(p);
+        Allow memory alice = _allow(0);
+        vm.deal(alice.wallet, 10 ether);
+        vm.prank(alice.wallet);
+        vm.expectRevert(abi.encodeWithSelector(CuratedVault.PresaleAbovePrice.selector, high, w.price));
+        vault.buyPresale{value: high + fee}(
+            w.index, w.netlist, w.nIn, w.nOut, w.price, w.proof, alice.wallet, alice.quota, 0, alice.proof, high,
+            new bytes32[](0)
+        );
+    }
+
+    /// Without a presale price list the presale sells at the work-list price; a price list needs an allowlist.
+    function test_PresalePrice_NoListMeansListPrice() public {
+        CuratedVault.LaunchParams memory p = _params();
+        p.presaleStart = uint64(block.timestamp);
+        p.saleStart = uint64(block.timestamp + 1 days);
+        p.presalePriceRoot = bytes32(0);
+        _launchWith(p);
+        assertEq(vault.PRESALE_PRICE_ROOT(), bytes32(0));
+        Allow memory alice = _allow(0);
+        Work memory w = _work(0);
+        vm.deal(alice.wallet, 10 ether);
+        vm.prank(alice.wallet);
+        vm.expectRevert(CuratedVault.InvalidPresalePrice.selector);
+        vault.buyPresale{value: w.price / 2 + fee}(
+            w.index, w.netlist, w.nIn, w.nOut, w.price, w.proof, alice.wallet, alice.quota, 0, alice.proof, w.price / 2,
+            new bytes32[](0)
+        );
+        uint256 id = _presaleBuy(alice, alice.wallet, 0, alice.quota); // _pp gives the list price
+        assertEq(C.ownerOf(id), alice.wallet);
+
+        p = _params();
+        p.allowRoot = bytes32(0);
+        p.presaleStart = 0;
+        vm.prank(curator);
+        vm.expectRevert(abi.encodeWithSelector(CuratedVault.BadParams.selector, "presalePriceRoot"));
+        reg.launch{value: launchValue}(p);
     }
 
     /// An allowlisted wallet buys up to its quota during the presale, then no more.
@@ -1003,6 +1243,7 @@ contract CuratedForkTest is Test {
     function test_Presale_ParamsChecked() public {
         CuratedVault.LaunchParams memory p = _params();
         p.allowRoot = bytes32(0);
+        p.presalePriceRoot = bytes32(0);
         p.presaleStart = 0;
         _launchWith(p);
         Allow memory alice = _allow(0);
@@ -1022,6 +1263,7 @@ contract CuratedForkTest is Test {
 
         p = _params();
         p.allowRoot = bytes32(0);
+        p.presalePriceRoot = bytes32(0);
         p.presaleStart = 1; // a presale time without an allowlist
         vm.prank(curator);
         vm.expectRevert(abi.encodeWithSelector(CuratedVault.BadParams.selector, "presale"));
@@ -1549,16 +1791,19 @@ contract CuratedForkTest is Test {
         _launchWith(p);
         Allow memory alice = _allow(0);
         Work memory w = _work(1);
-        tok.mint(alice.wallet, w.price);
+        (uint256 pp, bytes32[] memory pproof) = _pp(1, alice.tier);
+        assertLt(pp, w.price);
+        tok.mint(alice.wallet, pp);
         vm.deal(alice.wallet, 1 ether);
         vm.prank(alice.wallet);
-        tok.approve(address(vault), w.price);
+        tok.approve(address(vault), pp);
         vm.prank(alice.wallet);
         uint256 id = vault.buyPresale{value: fee}(
-            w.index, w.netlist, w.nIn, w.nOut, w.price, w.proof, alice.wallet, alice.quota, alice.proof
+            w.index, w.netlist, w.nIn, w.nOut, w.price, w.proof, alice.wallet, alice.quota, alice.tier, alice.proof,
+            pp, pproof
         );
         assertEq(C.ownerOf(id), alice.wallet);
-        assertEq(tok.balanceOf(address(vault)), w.price);
+        assertEq(tok.balanceOf(address(vault)), pp, "the presale price, in the token");
 
         Work memory r = _work(RESERVED_WORK);
         vm.prank(curator);
