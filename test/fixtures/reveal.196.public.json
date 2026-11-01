@@ -1,0 +1,123 @@
+{
+ "chainId": 196,
+ "registry": "0x00000000000000000000000000000000c0dec0de",
+ "launch": {
+  "name": "P05 Instant Reveal",
+  "symbol": "P5IR",
+  "story": "Drawn one block after each purchase.",
+  "nandSupply": "9983",
+  "latchSupply": "17",
+  "mintPrice": "10000000000000",
+  "mintBatch": "2500",
+  "root": "0x7caffb49f047360932a97c7f3bc7448172016123559d9310d053ea8fdbd8bad9",
+  "count": 7,
+  "curator": "0x00000000000000000000000000000000000c0ffe",
+  "platform": "0x0000000000000000000000000000000000001234",
+  "platformBps": 500,
+  "saleStart": 2,
+  "saleEnd": 4102444800,
+  "maxLaunchFees": "9900000000000000",
+  "treasury": "0x0000000000000000000000000000000000007ea5",
+  "reservedCount": 1,
+  "limitPerWallet": false,
+  "maxPerWallet": 0,
+  "allowRoot": "0x099874ad64b69f0215c4373fc8d5e16786d97083371c0f0b3ea4628874b7cddc",
+  "presaleStart": 1,
+  "presalePriceRoot": "0xc50cb6d8e1d706b42b0ac52c5cb93be9881f3a4571595d1c0c95e4b11d8927ee",
+  "royaltyReceiver": "0x00000000000000000000000000000000000c0ffe",
+  "royaltyBps": 300,
+  "titlesHash": "0xe13f5c24299046483775ef7cefb46d42824fa3909d560eb6d0bd3e9ca17d8081",
+  "metadataURI": "",
+  "paymentToken": "0x0000000000000000000000000000000000000000",
+  "paymentSymbol": "OKB",
+  "paymentDecimals": 18,
+  "saleMode": 1,
+  "saleModeName": "instant-reveal",
+  "sequential": false,
+  "payee": "0x00000000000000000000000000000000000c0ffe",
+  "hidden": {
+   "poolPrices": [
+    "10000000000000000",
+    "50000000000000000"
+   ],
+   "poolCounts": [
+    4,
+    2
+   ],
+   "revealFee": "3000000000000000",
+   "revealGasPrice": "6413545408",
+   "secretsRoot": "0x0690a24206be6d6d406ea585237b532290fcf17c8f955136054e8781150a718e",
+   "secretHash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+   "metadataRoot": "0x816d9403390b53f9e2a29a9ef09fc1c5b9fcee23ba1abdd16f634c8cb9cbd786",
+   "passURI": ""
+  },
+  "metadataHash": "0xb4e8016c5bd6304a4135d5470d4d5759ae8ccc2abef0f79123a9da81778cef2b",
+  "launchValueWei": "34900000000000000"
+ },
+ "pools": [
+  {
+   "name": "Common",
+   "priceWei": "10000000000000000",
+   "count": 4,
+   "start": 0
+  },
+  {
+   "name": "Rare",
+   "priceWei": "50000000000000000",
+   "count": 2,
+   "start": 4
+  }
+ ],
+ "totals": {
+  "works": 7,
+  "publicWorks": 6,
+  "reservedWorks": 1,
+  "designs": 5,
+  "nandNeeded": 96,
+  "latchNeeded": 14,
+  "netlistBytes": 636
+ },
+ "warnings": [],
+ "allowlist": [
+  {
+   "address": "0x00000000000000000000000000000000000a11ce",
+   "quota": 2,
+   "tier": 0,
+   "leaf": "0x1f3abe78a9391ca270ebda3fca1b246cbca889ed29426cebb3078bdaa8b5a097",
+   "proof": [
+    "0xd3f6173154502fe3042eeaf799d025a40b3e4a2f8b5d3bf39a3e87353686f3fa"
+   ]
+  },
+  {
+   "address": "0x0000000000000000000000000000000000000b0b",
+   "quota": 1,
+   "tier": 1,
+   "leaf": "0xd3f6173154502fe3042eeaf799d025a40b3e4a2f8b5d3bf39a3e87353686f3fa",
+   "proof": [
+    "0x1f3abe78a9391ca270ebda3fca1b246cbca889ed29426cebb3078bdaa8b5a097"
+   ]
+  }
+ ],
+ "presaleTiers": [
+  {
+   "name": "OG",
+   "prices": [
+    "10000000000000000",
+    "20000000000000000"
+   ]
+  },
+  {
+   "name": "Friends",
+   "prices": [
+    "0",
+    "0"
+   ]
+  }
+ ],
+ "revealGasEstimate": {
+  "0": 410120,
+  "1": 467760
+ },
+ "format": "curated-collection-manifest/8",
+ "private": false
+}

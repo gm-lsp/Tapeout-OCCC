@@ -1,0 +1,116 @@
+{
+ "chainId": 56,
+ "registry": "0x00000000000000000000000000000000C0DEC0DE",
+ "curator": "0x00000000000000000000000000000000000C0FFE",
+ "platform": "0x0000000000000000000000000000000000001234",
+ "platformBps": 500,
+ "treasury": "0x0000000000000000000000000000000000007EA5",
+ "mintPriceWei": "10000000000000",
+ "mintBatch": 2500,
+ "saleStart": 2,
+ "saleEnd": 4102444800,
+ "limitPerWallet": false,
+ "royalty": {
+  "receiver": "0x00000000000000000000000000000000000C0FFE",
+  "bps": 300
+ },
+ "spareNand": 5,
+ "spareLatch": 3,
+ "name": "P05 Blind Box",
+ "symbol": "P5BB",
+ "story": "Opened once the sale is over.",
+ "saleMode": "blind-box",
+ "pools": [
+  {
+   "name": "Common",
+   "priceWei": "10000000000000000"
+  },
+  {
+   "name": "Rare",
+   "priceWei": "50000000000000000"
+  }
+ ],
+ "revealFeeWei": "3000000000000000",
+ "passURI": "ar://P05BlindBoxPassMetadata_NotUploaded_0000000",
+ "presale": {
+  "start": 1,
+  "allowlist": [
+   {
+    "address": "0x00000000000000000000000000000000000A11CE",
+    "quota": 2,
+    "tier": 0
+   },
+   {
+    "address": "0x0000000000000000000000000000000000000B0B",
+    "quota": 1,
+    "tier": 1
+   }
+  ],
+  "tiers": [
+   {
+    "name": "OG",
+    "prices": {
+     "1": "20000000000000000"
+    }
+   },
+   {
+    "name": "Friends",
+    "priceWei": "0"
+   }
+  ]
+ },
+ "works": [
+  {
+   "file": "toggle.json",
+   "title": "Toggle",
+   "pool": 0,
+   "copies": 3,
+   "description": "Flips every cycle.",
+   "attributes": [
+    {
+     "trait_type": "Rarity",
+     "value": "common"
+    }
+   ],
+   "imageSha256": "0x1111111111111111111111111111111111111111111111111111111111111111"
+  },
+  {
+   "file": "xor.json",
+   "title": "XOR",
+   "pool": 0,
+   "attributes": [
+    {
+     "trait_type": "Rarity",
+     "value": "common"
+    }
+   ]
+  },
+  {
+   "file": "counter4.json",
+   "title": "4-bit counter",
+   "pool": 1,
+   "attributes": [
+    {
+     "trait_type": "Rarity",
+     "value": "传说"
+    }
+   ]
+  },
+  {
+   "file": "lfsr7.json",
+   "title": "7-bit LFSR",
+   "pool": 1,
+   "attributes": [
+    {
+     "trait_type": "Rarity",
+     "value": "rare"
+    }
+   ]
+  },
+  {
+   "file": "and2.json",
+   "title": "AND (treasury)",
+   "reserved": true
+  }
+ ]
+}

@@ -10,7 +10,7 @@
 
 ## 一句话概述
 
-让艺术家或项目方在 TapeOut 上发售一组固定的电路作品，并且任何人（买家、市场、其他合约）都能在链上查到：集合里哪些电路是真正的作品，哪些是别人塞进来的。
+让艺术家或项目方在 TapeOut 上发售一组固定的电路作品，并且任何人（买家、市场、其他合约）都能在链上查到：集合里哪些电路是真正的作品，哪些是别人塞进来的。集合可以公开逐件发售，可以把同一个设计发行很多份并编号，也可以随机分配作品（立即揭晓，或者发售结束后开盲盒），让谁都无法提前知道或挑选稀有作品。
 
 ## 摘要
 
@@ -22,7 +22,14 @@
 - 一个电路是**官方作品**，当且仅当它是 Vault 流片的，并且登记合约在同一笔交易里认证了它的编号。
 - 策展人可以在清单里把部分作品标为**国库预留**，并在发行时写死国库地址：公众永远买不到这些作品，它们只能被领取进国库，之后国库可以像处理任何电路一样赠送或空投。
 
-策展人还可以选择声明版税，供市场读取并可选择执行；也可以用 BEM 这样的 ERC-20 代币代替链的原生币为作品定价。本提案规定了登记合约的接口（`isOfficial`、`editionOf`、`tokenOf`、`isReserved`、`isCurated`、`collectionOf`、版税相关函数及事件）、登记合约在发行时必须检查的条件（包括必须由策展人本人发行）、Vault 的行为、与链、登记合约和策展人绑定的作品清单叶子编码、必须公开全部叶子的要求、对集合名称、代号、介绍和作品标题的链上承诺、发行时固定的可选元数据目录（登记合约据此通过 `tokenURI` 为每件官方电路提供 ERC-721 元数据：名称、图片、属性），以及前端、市场和其他合约应该怎样使用这份记录。本提案还建议 TapeOut 对处理器合约做一处小改动，让只读取 NFT 合约本身的钱包和市场也能显示同样的元数据。
+策展人还可以选择声明版税，供市场读取并可选择执行；也可以用 BEM 这样的 ERC-20 代币代替链的原生币为作品定价。每笔销售收入都当场转给策展人指定的收款地址。集合在发行时选定三种**发售方式**之一：
+- **即时流片**：买家选定清单里的一件作品（或按清单顺序的下一件），在同一笔交易里拿到电路；一个设计可以作为一组相同的多份列入清单。
+- **即时揭晓**：买家买下某个价格档里的一个名额，从下一个区块起，这一档剩余作品中随机抽出一件流片给买家。
+- **盲盒发售**：买家拿到一张可转让的盲盒凭证；发售结束后策展人开盒，每张凭证按随机排列分到一件作品，任何人都可以把凭证领取成电路。
+
+两种隐藏方式下，作品在流片之前一直不公开；随机数在发行时就已承诺，买家、策展人和平台都无法挑选结果。每件官方电路都有一个官方编号，即它在本集合官方流片中的顺序。
+
+本提案规定了登记合约的接口（`isOfficial`、`editionOf`、`tokenOf`、`serialOf`、`tokenOfSerial`、`isReserved`、`isCurated`、`collectionOf`、`isBlindBoxPass`、版税相关函数及事件）、登记合约在发行时必须检查的条件（包括必须由策展人本人发行）、Vault 的行为、与链、登记合约和策展人绑定的作品清单叶子编码、必须公开全部叶子的要求、对集合名称、代号、介绍和作品标题的链上承诺、发行时固定的可选元数据目录（登记合约据此通过 `tokenURI` 为每件官方电路提供 ERC-721 元数据：名称、图片、属性），以及前端、市场和其他合约应该怎样使用这份记录。本提案还向 TapeOut 提出三项建议：对处理器合约做一处小改动，让只读取 NFT 合约本身的钱包和市场也能显示同样的元数据；允许处理器的创建者把流片限定为只有自己能做；以及对“延迟流片”的评估。
 
 ## 动机
 
@@ -59,7 +66,13 @@
 | 策展集合 | 在登记合约里与某个 Vault 绑定的处理器合约 |
 | 作品清单 | 由 `count` 件作品组成、编号从 0 开始的有序列表，用 Merkle 根承诺 |
 | 官方电路 | 按第 2 节被登记合约认证的电路 `(circuits, tokenId)` |
-| 策展人（Curator） | 发行集合的地址；收取销售收入中策展人的份额，是唯一可以领取预留作品的地址，并可以更换版税收款地址或调低比例 |
+| 策展人（Curator） | 发行集合的地址；是唯一可以领取预留作品的地址，指定收款地址，并可以更换版税收款地址或调低比例 |
+| 收款地址（Payee） | 每笔销售中策展人那一份的直接收款地址，发行时设定，策展人以后可以更换 |
+| 发售方式（Sale mode） | 集合的销售方式，发行时固定：0 **即时流片**、1 **即时揭晓**、2 **盲盒发售**（第 6、13 节） |
+| 一组（Run） | 作品清单里列一次、带有份数的一个设计；各份占用连续的编号 |
+| 官方编号（Serial） | 一件官方电路在本集合官方电路中按流片顺序的位置，从 1 开始（第 3 节） |
+| 隐藏发售 | 方式 1 或 2：买家买的是某个**价格档**里的一个**名额**，而不是某件作品；作品在流片之前不公开 |
+| 盲盒凭证（Pass） | 盲盒发售中买家每个名额得到的可转让 ERC-721 代币；领取成电路时销毁 |
 | 预留作品 | 作品清单标为国库预留的作品：不能被购买，只能被领取进国库 |
 | 国库（Treasury） | 发行时固定的地址，接收所有预留作品 |
 
@@ -71,6 +84,8 @@
 3. 在同一笔交易里，Vault 对一个 `index < count`、此前未被认证过的作品调用了登记合约的 `certify(circuits, tokenId, index, netlistHash, reserved)`。
 
 官方身份属于电路本身，而不是持有人：电路被转让、出售、赠送或空投后，官方身份都不变。
+
+作品清单把同一个设计发行多份时（第 5 节），每一份都按同一条规则是官方作品，因为它是 Vault 流片的。任何其他人流片的同网表电路，无论在这台处理器上（只能是纯 REF 包装壳，见第 4 节）还是在别的处理器上，都不是官方作品。
 
 不得根据网表字节、网表哈希、`circuitInfo`、运行结果、持有人或 tokenURI 来推断一个电路是否官方。
 
@@ -87,13 +102,18 @@
 | `tokenOf(address circuits, uint256 index)` | `0xa3dabb02` | `(是否已流片, 电路 id)` |
 | `isReserved(address circuits, uint256 tokenId)` | `0x9e9cf5c3` | 是否为清单预留给国库的官方作品；之后转手也不变 |
 | `isCurated(address circuits)` | `0x774d70e4` | 是否为本登记合约中的策展集合 |
-| `collectionOf(address circuits)` | `0x3e94c904` | `(vault, curator, transistors, treasury, root, count, reserved, certified, metadata)`；非策展集合全为 0 |
+| `collectionOf(address circuits)` | `0x3e94c904` | `(vault, curator, transistors, treasury, root, count, reserved, certified, metadata, saleMode)`；非策展集合全为 0 |
+| `serialOf(address circuits, uint256 tokenId)` | `0x7be75877` | 该电路的官方编号（本集合第一件官方电路为 1，下一件为 2……）；非官方为 0 |
+| `tokenOfSerial(address circuits, uint256 serial)` | `0x065b9385` | `(是否存在, 电路 id)`：该官方编号对应的电路 |
+| `isBlindBoxPass(address token)` | `0xa7dc0bbe` | `token` 是否为经本登记合约发行的盲盒集合的凭证合约（第 13 节） |
 | `certify(address circuits, uint256 tokenId, uint256 index, bytes32 netlistHash, bool reserved)` | `0xaa92a7c0` | 不是只读函数：登记一件官方电路；只有该集合的 Vault 能调用（第 3 节第 4 条） |
 
 | 事件 | Topic 0 |
 |---|---|
 | `CollectionLaunched(address indexed circuits, address indexed vault, address indexed curator, address transistors, bytes32 root, uint32 count, address treasury, uint32 reserved, bytes32 metadata)` | `0xfafcf03610954fd778b52f9044d3c3fcbade024c53f03257b287645a997bb10d` |
 | `Certified(address indexed circuits, uint256 indexed tokenId, uint256 indexed index, bytes32 netlistHash, bool reserved)` | `0x8d7d8f5d2406ca80fb5e26889f1d3c94eaa0bc9e610a469ca59e18cab4ff1340` |
+| `Serial(address indexed circuits, uint256 indexed tokenId, uint256 serial)` | `0x8299a793f3c0fd9c6e44cf13aa3d647c724f27561931bed2f30f320848a31a19` |
+| `SaleModeSet(address indexed circuits, uint8 saleMode)` | `0x96a08b66a34b0db3ec807bf462081fb299e174e057a1571aa73b1eb870a1fa7e` |
 
 规则：
 1. 每个 `circuits` 的 `CollectionLaunched` 必须恰好发出一次，并早于它的任何 `Certified`。
@@ -101,11 +121,14 @@
 3. `isOfficial` 一旦为真必须永远为真；`editionOf`、`tokenOf` 一旦设定不得改变；集合的 root、count、vault、curator、transistors、treasury、reserved、metadata 一旦设定不得改变。
 4. 登记合约不得有所有者、管理员、暂停开关或升级机制，并且不得接受该集合 Vault 以外任何地址的认证。
 5. 登记合约为一个集合认证的预留作品，不得超过发行时固定的 `reserved` 数量。
+6. 每次认证必须分配下一个官方编号：一个集合第一件被认证的电路为 1，之后每件比上一件多 1。`Serial` 必须紧接 `Certified` 发出；`serialOf`、`tokenOfSerial` 一旦设定不得改变。`CollectionLaunched` 和 `SaleModeSet` 一起发出且只发一次；`saleMode` 不得改变。
+
+作品编号（`editionOf`）是作品在清单里的位置；官方编号（`serialOf`）是它在官方流片顺序中的位置，也就是持有人平常说的“#N”。登记合约要求发行时处理器是全新的（第 4.6 条），TapeOut 按流片顺序从 1 开始给电路编号，所以只要没有别人在这台处理器上流片，官方编号就等于 TapeOut 的电路编号。但任何人都能往任何处理器里流片纯 REF 包装壳（第 4 节），每个都会占用一个 TapeOut 编号，从那以后两种编号就会错开。现有合约下没有协议能阻止这一点，第 12.2 条建议了能解决它的 TapeOut 改动。前端应当把官方编号显示为作品的编号，两者不同时在旁边显示 TapeOut 编号。按顺序发售的集合（第 6.10 条）里，官方编号等于作品编号加 1；隐藏发售（第 13 节）里，官方编号是名额交付的顺序，与作品编号和标题无关。
 
 ### 4. 发行
 
 登记合约必须仅在绑定时由它**自己在链上核实**以下全部条件都成立后，才把集合与 Vault 绑定（不能采信 Vault 的说法）：
-1. 该 Vault 是为这次发行部署的，部署者是本登记合约，或者是本登记合约创建、且只有本登记合约能调用的部署合约；并且发起这次发行的正是策展人本人。登记合约不得发行策展人不是调用者的集合，这样谁也无法冒用艺术家的名义发行；
+1. 该 Vault 是本登记合约为这次发行创建的，所用的 Vault 代码在登记合约部署时就已固定（参考登记合约按发售方式，克隆三个实现合约之一，克隆方式为 EIP-1167，三个实现的地址在登记合约里不可更改）；并且发起这次发行的正是策展人本人。登记合约不得发行策展人不是调用者的集合，这样谁也无法冒用艺术家的名义发行；
 2. 登记合约所在链的 TapeOut 处理器工厂的 `isCPU(circuits)`（选择器 `0x5f5a364f`）为真；登记合约必须在部署时固定这个工厂；
 3. `circuits.transistors() == transistors`，且 `transistors.circuits() == circuits`；
 4. `transistors.creator() == vault`；
@@ -115,13 +138,15 @@
 
 创建处理器、把全部供应铸给 Vault、绑定，必须在同一笔交易里完成。由于处理器在这笔交易之前并不存在，其他任何人都不可能持有它的晶体管。
 
+参考 Vault 在创建处理器之后立即调用它的 `restrictTapeoutToCreator()`（`0x9051fb27`），gas 上限 100,000，忽略结果。现有处理器没有这个函数，调用不会改变任何东西；如果 TapeOut 采纳第 12.2 条的建议，此后发行的集合从第一个区块起就只允许 Vault 流片，任何包装壳都塞不进来。
+
 发行时必须设定销售结束时间，且它必须晚于发行时间。发行者应当写明愿意支付的工厂费和协议费上限；如果发行时读到的费用超过上限，发行必须回滚，防止在准备和发送发行交易之间费用被调高、吃掉发行者的余款。
 
 发行时可以设置非零的铸造单价（例如为了满足前端展示门槛）。此时 Vault 付款给自己，并在每批之间用 `withdraw()` 收回；因为 Vault 就是创建者，实际成本只有工厂部署费和协议费。这部分“铸造收入”并不是真实需求，工具应当说明这一点。
 
 ### 5. 作品清单
 
-每件作品是 `(index, netlist, nIn, nOut, price, reserved)`：netlist 是合法的 TAP-02 网表，price 是售价，以集合支付资产的最小单位计（原生币时为 wei；见第 6.8 条），reserved 表示是否为国库预留。预留作品的 `price` 必须为 0。叶子为（伪代码，`abi.encode` 和 `keccak256` 与 Solidity 相同）：
+本节描述即时流片（发售方式 0）的作品清单；隐藏发售使用第 13.2 条的叶子。每件作品是 `(index, netlist, nIn, nOut, price, reserved)`：netlist 是合法的 TAP-02 网表，price 是售价，以集合支付资产的最小单位计（原生币时为 wei；见第 6.8 条），reserved 表示是否为国库预留。预留作品的 `price` 必须为 0。叶子为（伪代码，`abi.encode` 和 `keccak256` 与 Solidity 相同）：
 
 ```
 leaf = keccak256(bytes.concat(keccak256(abi.encode(
@@ -131,9 +156,21 @@ leaf = keccak256(bytes.concat(keccak256(abi.encode(
 
 根按排序配对哈希计算，与 OpenZeppelin `MerkleProof` 的校验方式一致（`hash(a, b) = keccak256(a < b ? a ‖ b : b ‖ a)`）。叶子绑定了链、登记合约和策展人，所以作品清单不能被别人、在别的链或别的登记合约里重复使用。
 
-因此，哪些作品公开发售、哪些作品国库预留，连同预留数量和国库地址，都在发行时就固定了。策展人事后不能把热门的公开作品挪进国库，买家在开售前就能看到全部预留作品。编号必须是 `0 … count − 1`，各用一次。工具应当拒绝同一网表出现两次的清单。
+因此，哪些作品公开发售、哪些作品国库预留，连同预留数量和国库地址，都在发行时就固定了。策展人事后不能把热门的公开作品挪进国库，买家在开售前就能看到全部预留作品。编号必须是 `0 … count − 1`，各用一次。
 
-Merkle 根承诺的是“一组叶子”，而不是“恰好 `count` 件作品”：不诚实的策展人可以给某个编号偷偷多加一片叶子（比如价格为 0），然后自己抢先买走。因此策展人必须在开售前公开全部叶子（每件作品的编号、网表、引脚数、价格和是否预留），验证方应当用公开的清单重建根，并与 `collectionOf(circuits).root` 比对。公开清单重建不出链上根的集合，不得显示为已验证。
+**同款多份。** 很多集合会把同一个设计卖很多次：几千个电路网表相同，每一个都是官方作品（第 2 节）。因此作品清单可以在多个编号上使用同一网表。工具应当拒绝同一网表出现两次的清单，除非策展人明确声明这是一个发行 `copies` 份的设计，工具会把它展开成 `copies` 个连续编号；没有声明的重复会被当作误传而拒绝。工具和公开格式应当只存一次这个设计，并记录份数，而不是每份存一遍。一个设计所需的晶体管按份数计算。
+
+**按顺序发售。** 集合可以在发行时设为**按顺序发售**：作品严格按清单顺序出售，每次购买 Vault 都流片编号 `sold`（已流片的作品数）；作品清单由若干**组**组成，每组是一个设计的 `copies` 份相同作品，占编号 `first … first + copies − 1`（单件作品就是一份的一组），每组一片叶子：
+
+```
+runLeaf = keccak256(bytes.concat(keccak256(abi.encode(
+    uint256 chainId, address registry, address curator, bytes32 keccak256("TAP-curated-run"),
+    uint256 first, uint32 copies, bytes32 keccak256(netlist), uint32 nIn, uint32 nOut, uint256 price, bool reserved))))
+```
+
+标签和长度（11 个字）把组叶子与作品叶子区分开。由于谁也不能跳着买，作品在清单里固定的编号就是它的流片顺序，所以它的官方编号（第 3 节）是 `index + 1`；只要没有别人在这台处理器上流片，也就是它的 TapeOut 编号。这样项目方可以事先给作品编号（#1 是这个设计，#2 是那个）。按顺序发售的清单里，国库预留的组必须排在最前面，并在公开发售前按顺序领取（工具会检查）：排在中间的预留组会让发售停在那里直到领取，排在最后的则在发售结束仍未卖完时再也领取不到。发售结束时没卖出的作品总是清单末尾的那些，所以不会有官方编号被跳过。
+
+Merkle 根承诺的是“一组叶子”，而不是“恰好 `count` 件作品”：不诚实的策展人可以给某个编号偷偷多加一片叶子（比如价格为 0），然后自己抢先买走。因此即时流片的策展人必须在开售前公开全部叶子（每件作品的编号、网表、引脚数、价格和是否预留），验证方应当用公开的清单重建根，并与 `collectionOf(circuits).root` 比对。公开清单重建不出链上根的集合，不得显示为已验证。
 
 清单里的网表如果含 REF，必须指向在生成清单时已经存在、且引脚数一致的电路。指向尚不存在的编号，会让任何人抢先在那个编号上流片，从而决定官方作品的一部分行为；引脚数不对的 REF 则永远无法流片。
 
@@ -141,34 +178,38 @@ Merkle 根承诺的是“一组叶子”，而不是“恰好 `count` 件作品�
 
 ### 6. Vault
 
-与集合绑定的 Vault：
+与集合绑定的 Vault（第 1–9 条适用于所有发售方式；第 13 节补充隐藏发售的规则）：
 1. 必须只流片其叶子能用 Merkle 证明对上根的网表，每个 `index` 最多一次；
 2. 每次流片必须在同一笔交易里用 `tapeout` 返回的 id 调用 `certify`；
-3. 不得出售预留作品；预留作品必须只流片给发行时固定的国库（国库不得是 Vault、登记合约或登记合约的部署合约），总数不超过 `reserved`，并且只能在剩余晶体管被销毁（第 4 条）之前进行。进入国库后，预留作品就是一个普通电路，国库可以转让、赠送或空投，Vault 和登记合约对此不加任何限制；
+3. 不得出售预留作品；预留作品必须只流片给发行时固定的国库（国库不得是 Vault 或登记合约），总数不超过 `reserved`，并且只能在剩余晶体管被销毁（第 4 条）之前进行。进入国库后，预留作品就是一个普通电路，国库可以转让、赠送或空投，Vault 和登记合约对此不加任何限制；
 4. 除了流片，以及在以下时机把剩余晶体管转入销毁地址以外，不得转移、授权或销毁晶体管：全部 `count` 件作品都已流片；或者销售已经结束，并且预留作品已全部领取、或者已过了 Vault 中固定的宽限期。销售结束时没卖出的公开作品永远不能再流片，宽限期也有上限，所以一件卖不出去的作品不会让剩余晶体管永远无法销毁；而策展人忘了领取的预留作品，不会在销售结束时就丢失；
-5. 不得有所有者，也不得有在发行后修改根、数量、策展人、平台分成、国库、预留数量、支付资产、预售价或开售时间的函数。可以允许策展人暂停和恢复购买，并在销售尚未结束、Vault 尚未收尾时把销售结束时间往后推（不能提前）；不得允许任何人提前结束时间或重新打开已结束的销售；
+5. 不得有所有者，也不得有在发行后修改根、数量、策展人、平台分成、国库、预留数量、支付资产、预售价、发售方式或开售时间的函数。可以允许策展人更换收款地址。可以允许策展人暂停和恢复购买，并在销售尚未结束、Vault 尚未收尾时把销售结束时间往后推（不能提前）；不得允许任何人提前结束时间或重新打开已结束的销售；
 6. 不得让发行者或任何人在发行交易内部购买作品（例如从退款回调里购买）；
-7. 应当在同一笔交易里把新电路转给买家指定的接收地址，并应当用“自行提取”的方式支付收入，同时允许无法接收支付资产的收款方把收入提到另一个地址。
+7. 应当在同一笔交易里把新电路转给买家指定的接收地址。应当在每笔销售时立即付款：平台分成转给平台，其余转给收款地址；并且不得因为某笔付款失败（收款地址是拒收原生币的合约、代币把收款地址拉黑）而让购买失败：这样的金额留给该收款方，以后由它提给自己或别的地址。流片费，以及隐藏发售中的揭晓 gas 费（第 13 节），不属于收入，留在 Vault 里直到被使用或退回。
 8. 可以用发行时固定的一种 ERC-20 代币（即支付资产）代替原生币为作品定价；TapeOut 的流片费和发行费仍用原生币支付。这样做的 Vault 必须能在链上读出这个代币，并且必须只在恰好收到该代币计的价格时才完成购买，这样收款方永远不会被记入没有到账的代币。
 9. 可以在公开发售前以自己的预售价（可以不同于作品清单价格）卖给白名单钱包。这样的预售价必须在发行时固定，并且 Vault 不得以高于作品清单价格的预售价出售任何作品。
+10. 按顺序发售的集合（第 5 节）里，每次购买和每次预留领取都必须恰好流片编号 `sold`，谁也不能不按顺序购买或领取。
 
-参考实现用 `buy(index, netlist, nIn, nOut, price, proof, recipient)`（`0x2a21357f`）销售。策展人可以用 `setPaused(bool)`（`0x16c38b3c`，事件 `SalePaused(bool)`）暂停和恢复购买（公开发售和预售都包括在内），也可以在当前结束时间到来之前，用 `extendSale(uint64 newEnd)`（`0xb69ee020`，事件 `SaleEndExtended(uint64 previousEnd, uint64 newEnd)`）把结束时间往后推；`SALE_END()`（`0x9aa0ff7b`）和 `paused()`（`0x5c975abb`）返回当前状态。这两项都不影响预留作品的领取、作品清单和价格，预留宽限期从当前的结束时间算起。以原生币计价时，买家须恰好支付应付金额（`price`，预售时为 `presalePrice`）加上 `circuits.TAPEOUT_FEE()`；这笔金额在策展人和可选的平台之间分配（平台最多 10%）；只在固定的 `saleStart` 到 `saleEnd` 之间销售；只接收自己流片时新铸给自己的电路；每个收款方可以提给自己，也可以用 `withdrawTo` 提到别的地址。预留作品用 `claimReserved(index, netlist, nIn, nOut, proof)`（`0xfc451b6a`）领取，也可以用 `claimReservedBatch((uint256 index, bytes netlist, uint32 nIn, uint32 nOut, bytes32[] proof)[])`（`0x8549fef1`）一次领取多件（要么全部成功，要么全部失败）：只有策展人可以调用，每件只付流片费，公开开售前、发售中、销售结束后都可以领取，电路直接进入国库。`finalize()` 在以下时机销毁剩余晶体管：全部作品都已流片；或者销售已经结束，并且预留作品已全部领取、或已过 `RESERVE_GRACE`（30 天）。任何人都可以调用它，`finalizable()`（`0x107e8456`）返回现在能否调用。收尾之后任何作品都不能再流片，所以策展人仍应当在发行后尽早领取预留作品。
+参考实现用 `buy(index, netlist, nIn, nOut, price, proof, recipient)`（`0x2a21357f`）销售。策展人可以用 `setPaused(bool)`（`0x16c38b3c`，事件 `SalePaused(bool)`）暂停和恢复购买（公开发售和预售都包括在内），也可以在当前结束时间到来之前，用 `extendSale(uint64 newEnd)`（`0xb69ee020`，事件 `SaleEndExtended(uint64 previousEnd, uint64 newEnd)`）把结束时间往后推；`SALE_END()`（`0x9aa0ff7b`）和 `paused()`（`0x5c975abb`）返回当前状态。这两项都不影响预留作品的领取、作品清单和价格，预留宽限期从当前的结束时间算起。以原生币计价时，买家须恰好支付应付金额（`price`，预售时为 `presalePrice`）加上 `circuits.TAPEOUT_FEE()`；这笔金额在同一笔交易里付给可选的平台（最多 10%）和收款地址；只在固定的 `saleStart` 到 `saleEnd` 之间销售；只接收自己流片时新铸给自己的电路。收款地址是一个发行参数（`payee`，不能是 0、Vault 或登记合约；工具默认用策展人地址，并建议用多签），策展人可以用 `setPayee(address)`（`0x410459ad`，事件 `PayeeChanged(address)`）更换，`payee()`（`0xae90b213`）读取。每笔原生币付款是一次最多 50,000 gas 的调用，代币付款是一次 `transfer`，失败都不会回滚：这时金额记入 `owed(收款方)`（`0xdf18e047`），事件 `Paid(address indexed to, uint256 amount, bool deferred)`（`0x162f9eb7304cbf07de399b2c5000f621c8a1d7cf02c1d5dabe674206cf779009`）会标明；`withdraw(who)` 把欠 `who` 的金额发给它，`withdrawTo(to)` 把欠调用者的金额发到另一个地址。隐藏发售中欠买家的原生币（未用完的揭晓 gas 费）同样记在 `owedNative` 里。预留作品用 `claimReserved(index, netlist, nIn, nOut, proof)`（`0xfc451b6a`）领取，也可以用 `claimReservedBatch((uint256 index, bytes netlist, uint32 nIn, uint32 nOut, bytes32[] proof)[])`（`0x8549fef1`）一次领取多件（要么全部成功，要么全部失败）：只有策展人可以调用，每件只付流片费，公开开售前、发售中、销售结束后都可以领取，电路直接进入国库。`finalize()` 在以下时机销毁剩余晶体管：全部作品都已流片；或者销售已经结束，并且预留作品已全部领取、或已过 `RESERVE_GRACE`（30 天）。任何人都可以调用它，`finalizable()`（`0x107e8456`）返回现在能否调用。收尾之后任何作品都不能再流片，所以策展人仍应当在发行后尽早领取预留作品。
 
-参考 Vault 可以用 ERC-20 代币为作品定价：由最后一个发行参数 `paymentToken` 在发行时固定（`address(0)` 表示原生币，其他值只能是合约），用 `PAYMENT_TOKEN()`（`0x877c86fb`）读取。这时 `buy` 和 `buyPresale` 的 `msg.value` 须恰好等于 `circuits.TAPEOUT_FEE()`，应付金额（`price`，预售时为 `presalePrice`）用 `transferFrom` 从买家那里扣取，所以买家要先给 Vault 授权这笔价格；Vault 比较转账前后自己的代币余额，没有恰好收到这笔金额就以 `TokenAmountMismatch(expected, received)` 回滚，从而拒绝转账扣费之类的代币。免费作品不需要授权。策展人和平台的分成以该代币记账和提取（`withdraw`、`withdrawTo`）；`Purchased` 里的 `price` 以该代币的最小单位计。预留作品的领取、发行费和发行退款仍是原生币。作品清单的叶子（第 5 节）不包含代币：清单里的价格指集合支付资产的最小单位，所以一份作品清单只对应一种支付资产。参考登记合约在构造时创建一个 `CuratedVaultDeployer`（`DEPLOYER()`），由它保存 Vault 的创建代码并部署 Vault，使登记合约不超过合约大小上限；只有登记合约能调用它。
+参考 Vault 可以用 ERC-20 代币为作品定价：由发行参数 `paymentToken` 在发行时固定（`address(0)` 表示原生币，其他值只能是合约），用 `PAYMENT_TOKEN()`（`0x877c86fb`）读取。这时 `buy` 和 `buyPresale` 的 `msg.value` 须恰好等于 `circuits.TAPEOUT_FEE()`，应付金额（`price`，预售时为 `presalePrice`）用 `transferFrom` 从买家那里扣取，所以买家要先给 Vault 授权这笔价格；Vault 比较转账前后自己的代币余额，没有恰好收到这笔金额就以 `TokenAmountMismatch(expected, received)` 回滚，从而拒绝转账扣费之类的代币。免费作品不需要授权。策展人和平台的分成以该代币当场付出（转账失败的记入 `owed`，同上）；`Purchased` 里的 `price` 以该代币的最小单位计。预留作品的领取、发行费和发行退款仍是原生币。作品清单的叶子（第 5 节）不包含代币：清单里的价格指集合支付资产的最小单位，所以一份作品清单只对应一种支付资产。参考登记合约把每个 Vault 创建为构造时固定的三个实现之一的 EIP-1167 最小代理（克隆）：`INSTANT_IMPL()`（`0x752488ea`，方式 0）、`REVEAL_IMPL()`（`0x28367e9e`，方式 1）、`BOX_IMPL()`（`0xad9b3776`，方式 2）；实现合约本身永远不能被初始化，克隆只能由创建它的登记合约初始化一次。登记合约在初始化克隆之前，还会检查各方式共有的发行参数和隐藏发售的参数（第 13 节）。
+
+按顺序发售的集合（发行参数 `sequential`；`SEQUENTIAL()`，`0xac60a828`）用 `buyNext(first, copies, netlist, nIn, nOut, price, proof, recipient)`（`0xbe7c25dd`）销售：如果下一个编号 `sold` 落在被证明的这一组里，就流片它（否则 `NotNext(uint256 next)`）；预售用 `buyNextPresale(first, copies, netlist, nIn, nOut, price, proof, recipient, quota, tier, allowProof, presalePrice, presaleProof)`（`0x3fcb007f`），预售价叶子以这一组的 `first` 为键。预留的组用 `claimReservedRun(first, copies, netlist, nIn, nOut, proof, n)`（`0x09420559`）领取，把接下来的 `n` 份流片给国库；`buy`、`buyPresale` 和 `claimReserved` 拒绝按顺序发售的集合，`buyNext` 拒绝不按顺序的集合。`runLeafOf(first, copies, netlistHash, nIn, nOut, price, reserved)`（`0x206cd52c`）计算组叶子。
 
 参考实现还提供可选的单钱包限额，发行时以两个独立设置固定：`limitPerWallet`（`false` 表示不限制）和 `maxPerWallet`（限制数量，至少为 1，只在 `limitPerWallet` 为 `true` 时填写；两个设置不一致时发行回滚）。开启限额后，参考实现只卖给买家自己的钱包（`recipient == msg.sender`，否则回滚 `RecipientMustBeBuyer`），每次购买对该钱包计一次，达到限额的钱包不能再买。（只给买家计数，一个钱包就能替很多钱包买；连接收人也计数，任何人都能通过“替别人买”耗光陌生人的额度。）`remainingFor(wallet)` 返回是否有限额以及还剩几次。限额只管流片，不管之后的转账，也不管预留作品。它属于 Vault 的销售策略，不属于登记合约标准；和所有按地址计数的限制一样，它挡不住一个人使用多个钱包。
 
-参考实现还可以在公开发售前设置预售。发行时，策展人固定 `allowRoot`（白名单 `(钱包, 额度, 档位)` 的 Merkle 根）、`presaleStart`（参考实现要求它不为 0 且早于 `saleStart`；不设预售时两者都为 0），以及可选的 `presalePriceRoot`（最后一个发行参数，预售价目表 `(index, tier, presalePrice)` 的 Merkle 根），用 `PRESALE_PRICE_ROOT()`（`0xf6b2ed47`）读取。从 `presaleStart` 到 `saleStart` 之间，`buyPresale(index, netlist, nIn, nOut, price, proof, recipient, quota, tier, allowProof, presalePrice, presaleProof)`（`0xabb42724`）只卖给白名单钱包，每个钱包最多 `quota` 次；如果设了单钱包限额，也同样生效。`price` 和 `proof` 与 `buy` 相同，用来证明作品在作品清单里；`(msg.sender, quota, tier)` 须在白名单里。有预售价目表时，买家支付 `presalePrice`：它须能对 `(index, tier)` 证明（否则 `InvalidPresalePrice`），且不能高于 `price`（否则 `PresaleAbovePrice(presalePrice, price)`）；没有价目表时，`presalePrice` 须等于 `price`。实收金额、收款方的分成和 `Purchased` 里的 `price` 都是买家实际支付的数额，以支付资产计。档位让同一次预售可以给不同的白名单不同的价格（例如早期支持者名单和普通名单）；只有一套预售价时所有条目都用档位 0。白名单叶子为 `keccak256(bytes.concat(keccak256(abi.encode(uint256 chainId, address registry, address curator, bytes32 keccak256("TAP-curated-allowlist-v2"), address wallet, uint32 quota, uint32 tier))))`，预售价叶子为 `keccak256(bytes.concat(keccak256(abi.encode(uint256 chainId, address registry, address curator, bytes32 keccak256("TAP-curated-presale-price"), bytes32 root, uint256 index, uint32 tier, uint256 presalePrice))))`，其中 `root` 是集合作品清单的根，所以一张价目表只能用于为之生成的那个集合；标签让白名单叶子和预售价叶子互不混淆，它们的长度（7 个和 8 个字）又让二者与 9 个字的作品叶子互不混淆。没有白名单时，Vault 拒绝设置 `presalePriceRoot`。策展人应当把白名单和预售价目表与作品清单一起公开，方便任何人重建 `allowRoot` 和 `presalePriceRoot`，并核对没有一件作品的预售价高于它的价格。
+参考实现还可以在公开发售前设置预售。发行时，策展人固定 `allowRoot`（白名单 `(钱包, 额度, 档位)` 的 Merkle 根）、`presaleStart`（参考实现要求它不为 0 且早于 `saleStart`；不设预售时两者都为 0），以及可选的 `presalePriceRoot`（预售价目表 `(index, tier, presalePrice)` 的 Merkle 根），用 `PRESALE_PRICE_ROOT()`（`0xf6b2ed47`）读取。从 `presaleStart` 到 `saleStart` 之间，`buyPresale(index, netlist, nIn, nOut, price, proof, recipient, quota, tier, allowProof, presalePrice, presaleProof)`（`0xabb42724`）只卖给白名单钱包，每个钱包最多 `quota` 次；如果设了单钱包限额，也同样生效。`price` 和 `proof` 与 `buy` 相同，用来证明作品在作品清单里；`(msg.sender, quota, tier)` 须在白名单里。有预售价目表时，买家支付 `presalePrice`：它须能对 `(index, tier)` 证明（否则 `InvalidPresalePrice`），且不能高于 `price`（否则 `PresaleAbovePrice(presalePrice, price)`）；没有价目表时，`presalePrice` 须等于 `price`。实收金额、收款方的分成和 `Purchased` 里的 `price` 都是买家实际支付的数额，以支付资产计。档位让同一次预售可以给不同的白名单不同的价格（例如早期支持者名单和普通名单）；只有一套预售价时所有条目都用档位 0。白名单叶子为 `keccak256(bytes.concat(keccak256(abi.encode(uint256 chainId, address registry, address curator, bytes32 keccak256("TAP-curated-allowlist-v2"), address wallet, uint32 quota, uint32 tier))))`，预售价叶子为 `keccak256(bytes.concat(keccak256(abi.encode(uint256 chainId, address registry, address curator, bytes32 keccak256("TAP-curated-presale-price"), bytes32 root, uint256 index, uint32 tier, uint256 presalePrice))))`，其中 `root` 是集合作品清单的根，所以一张价目表只能用于为之生成的那个集合；标签让白名单叶子和预售价叶子互不混淆，它们的长度（7 个和 8 个字）又让二者与 9 个字的作品叶子互不混淆。没有白名单时，Vault 拒绝设置 `presalePriceRoot`。策展人应当把白名单和预售价目表与作品清单一起公开，方便任何人重建 `allowRoot` 和 `presalePriceRoot`，并核对没有一件作品的预售价高于它的价格。
 
 ### 7. 前端和市场
 
 1. 前端若把某电路标为策展集合的官方或认证作品，必须依据其注明的、与该电路在同一条链上的登记合约的 `isOfficial`（或 `editionOf`）。前端必须用“链 ID + 地址”一起识别集合：一条链上的官方身份不代表另一条链上的任何事，同一个地址在另一条链上可能是另一台处理器（X Layer 和 Base 上 TapeOut 的合约地址相同）。
 2. 不得依据 `circuitInfo`、运行结果、网表哈希、持有人或 tokenURI，把电路标为官方、认证或“符合标准”。
 3. 对策展集合，应当明显标出非官方电路，并允许用户把它们过滤掉。
-4. 应当显示作品编号（`editionOf`），并链接到认证交易（`Certified` 日志）。
+4. 应当把官方编号（`serialOf`）显示为作品的编号，同时显示作品编号（`editionOf`），TapeOut 电路编号与官方编号不同时也显示前者，并链接到认证交易（`Certified` 日志）。
 5. 应当标明集合中哪些作品是国库预留（领取前后都标明，用 `isReserved`）；国库把预留作品转出后，仍必须显示为官方作品。
 6. 只有当策展人公开的作品清单能重建出链上的根时（第 5 节），才应当把集合显示为已验证。
 7. 应当按从 Vault 读出的集合支付资产（第 6.8 条）显示价格，并使用该代币自己的 `decimals()`；作品以代币计价时，应当另外显示原生币的流片费。
+8. 不得把盲盒凭证（第 13 节）显示为电路或官方作品。可以把 `isBlindBoxPass` 为真的合约的凭证列为该集合“未开”的凭证，并应当用 Vault 的 `circuitOfSlot` 把已领取的凭证接续到它的电路。
 
 ### 8. 给持有人发放权益的合约
 
@@ -201,7 +242,7 @@ metadata   = keccak256(abi.encode(keccak256("TAP-curated-metadata"),
                                   titlesHash))
 ```
 
-所有字符串都按 UTF-8 编码，标题按编号顺序排列。`name`、`symbol`、`story` 就是创建处理器时使用的字符串；参考实现的 Vault 在链上用发行参数计算它们的哈希（`metadataOf(name, symbol, story, titlesHash)`，`0xe2e2bef0`），因此承诺不可能与处理器不一致；发行者只需提供 `titlesHash`，且不得为 0。
+所有字符串都按 UTF-8 编码，标题按编号顺序排列（每个编号一个标题：同一组的每一份重复该组的标题；隐藏发售的编号顺序是第 13.2 条的价格档顺序）。`name`、`symbol`、`story` 就是创建处理器时使用的字符串；参考登记合约在链上用发行参数计算它们的哈希（`metadataOf(name, symbol, story, titlesHash)`，`0xe2e2bef0`），因此承诺不可能与处理器不一致；发行者只需提供 `titlesHash`，且不得为 0。
 
 1. `metadata` 必须在发行时固定，之后不得改变。
 2. 策展人必须把名称、代号、介绍和全部标题与作品清单一起公开。
@@ -213,11 +254,12 @@ TapeOut 的处理器合约对每个电路的 `tokenURI` 都返回空值，也没
 
 | 函数 / 事件 | 选择器 / Topic 0 | 含义 |
 |---|---|---|
-| `tokenURI(address circuits, uint256 tokenId)` | `0xe9dc6375` | 官方电路返回 `"<metadataURI>/<index>.json"`，`index` 是它在作品清单中的编号（`editionOf`）；非官方电路，或集合没有目录时，返回 `""` |
+| `tokenURI(address circuits, uint256 tokenId)` | `0xe9dc6375` | 官方电路如果声明了自己的文件（即时揭晓，第 13.5 条）就返回它，否则返回 `"<metadataURI>/<index>.json"`，`index` 是它在作品清单中的编号（`editionOf`）；非官方电路，或两者都没有时，返回 `""` |
 | `metadataURIOf(address circuits)` | `0x9eac0ca2` | 集合的目录：`"ipfs://<CID>"`、`"ar://<交易 id>"` 或 `""` |
-| `MetadataURISet(address indexed circuits, string uri)` | `0xf4ea916416710952791c00e6c397903c99c416633fd82eeb8f5786572a9d899c` | 在发行交易中发出一次 |
+| `MetadataURISet(address indexed circuits, string uri)` | `0xf4ea916416710952791c00e6c397903c99c416633fd82eeb8f5786572a9d899c` | 只发出一次：在发行交易中（即时流片），或在开盒时（盲盒发售） |
+| `TokenURISet(address indexed circuits, uint256 indexed tokenId, string uri)` | `0x7e2a04aa388921ad0859b09b5255b044773bb1782dd70ac3b1db0031e7fd054d` | 即时揭晓的电路带有自己的元数据文件时，随它的流片发出 |
 
-1. 目录必须在发行时固定，之后不得改变。包括策展人在内，任何人都不能事后设置；发行时没有设置目录的集合，永远不会有目录。
+1. 目录最多声明一次，之后不得改变：即时流片在发行时声明（发行时没有设置目录的集合，永远不会有目录）；盲盒发售在开盒时声明（第 13.4 条）；即时揭晓不声明目录，每件电路各有一个内容寻址文件，在流片它的交易里声明一次（`declareTokenURI`，只有 Vault 能调用）。包括策展人在内，任何人事后都不能修改它们。
 2. 目录必须按内容寻址，这样目录里的内容也无法改变：`"ipfs://"` 后接一个指向不可变内容的 CID（CIDv0：`Qm` 加 44 个 base58 字符；或以 `bafy` 或 `bafk` 开头的小写 base32 CIDv1（涵盖 dag-pb、dag-cbor 和 raw 类型，哈希算法不限），50 到 100 个字符；不带路径，不接受其他编码，也不接受指向 IPNS 记录的 libp2p-key CID），或 `"ar://"` 后接 43 个字符、至少含一个大写字母的 Arweave 交易 id（base64url，通常是一个 Arweave 路径清单的 id）。ArNS 名称和子名称都是小写，所以“必须含大写字母”这一条保证 43 个字符的名称永远不会被当成 id；随机 id 不含大写字母的概率约为 2 × 10⁻¹⁰，遇到时上传工具重新签名即可。可变的名称（IPNS、DNSLink、ENS、ArNS）和 `http(s)` 网址必须拒绝。参考实现的登记合约在链上检查（`isContentAddressed(bytes)`，`0x9bdfd89c`），不符合就让发行回滚。
 3. 对非官方电路，`tokenURI` 必须返回 `""`，所以 REF 包装壳和复制品永远不会显示作品的图片。
 4. 文件 `<index>.json` 应当遵循 ERC-721 元数据 JSON 格式（`name`、`description`、`image`，可选 `animation_url` 和 `attributes`）。其中 `name` 应当等于第 `index` 号作品已承诺的标题（第 10 节），`image` 和 `animation_url` 本身也应当按内容寻址（`ipfs://…` 或 `ar://…`，可以带路径，但路径每段只能有字母、数字和 `. _ ~ -`，不能是 `.` 或 `..`，也不能用百分号编码，这样链接无法跳出它的内容地址）。参考工具还会写入 `properties`，包含作品的 `index` 和 `netlistHash`，把图片和电路设计绑在一起。
@@ -227,7 +269,11 @@ TapeOut 的处理器合约对每个电路的 `tokenURI` 都返回空值，也没
 
 ### 12. 给 TapeOut 的建议（说明性）
 
-本节是给 TapeOut 的建议，不是本标准的要求；本提案的其他部分都不依赖它。只读取 NFT 合约自身 `tokenURI` 的钱包和市场看不到登记合约。TapeOut 只需对信标背后的共用处理器实现做一处改动，就能让所有策展集合的元数据在任何地方都可见，而且不必信任任何特定的登记合约。示例（说明性）：
+本节是给 TapeOut 的建议，不是本标准的要求；本提案的其他部分都不依赖它们。
+
+#### 12.1 由处理器的创建者提供代币元数据
+
+只读取 NFT 合约自身 `tokenURI` 的钱包和市场看不到登记合约。TapeOut 只需对信标背后的共用处理器实现做一处改动，就能让所有策展集合的元数据在任何地方都可见，而且不必信任任何特定的登记合约。示例（说明性）：
 
 ```solidity
 interface ICircuitURIProvider {
@@ -252,6 +298,117 @@ function tokenURI(uint256 id) public view returns (string memory) {
 
 处理器只询问它自己的创建者，而创建者是谁，只取决于当初创建这台处理器的一方：创建者没有声明 `ICircuitURIProvider` 的处理器（包括所有普通钱包创建的）毫无变化；策展集合的创建者是它的 Vault，Vault 没有所有者，返回的是登记合约的 `tokenURI`（只限官方作品，发行时固定）。TapeOut 不需要给登记合约设白名单，也不需要评判任何集合。gas 上限防止有问题的创建者让 `tokenURI` 变得昂贵；任何失败（调用回滚、gas 用尽、返回数据过短或格式不对）都返回 `""`，也就是现在的行为。正式实现还要最多只复制几 KB 返回数据（需要用汇编，因为普通 `staticcall` 会复制全部返回数据），防止创建者返回超大字符串。参考实现的 Vault 已经实现了 `ICircuitURIProvider` 和 ERC-165，所以 TapeOut 一旦采纳，已发行的策展集合会立刻显示元数据。
 
+#### 12.2 允许处理器的创建者把流片限定为只有自己能做
+
+任何人都可以不用晶体管往任何处理器里流片纯 REF 包装壳（第 4 节、动机）。包装壳永远不是官方作品，但它们出现在集合的合约里，看起来像作品，还会占用 TapeOut 的电路编号，所以第一个包装壳出现之后，后面作品的官方编号（第 3 节）和 TapeOut 编号就会错开。基于现有处理器的任何协议都无法阻止这一点。TapeOut 可以让创建者选择把处理器设为只有创建者能流片：
+
+```solidity
+bool public tapeoutRestricted;                          // 只读，默认 false
+event TapeoutRestricted();
+
+/// 单向：一旦设置，永远不能撤销。
+function restrictTapeoutToCreator() external {           // 0x9051fb27
+    require(msg.sender == transistors.creator());
+    tapeoutRestricted = true;
+    emit TapeoutRestricted();
+}
+
+// 在 tapeout(...) 开头：
+//     if (tapeoutRestricted && msg.sender != transistors.creator()) revert NotCreator();
+```
+
+策展集合的创建者是它的 Vault，所以改动之后，处理器里只可能出现官方作品，官方编号也永远等于 TapeOut 编号。评估：这项改动只涉及“谁能在一台处理器里创建电路”。它不影响没有选择开启的处理器（默认关闭），不影响已有电路，也不影响 REF：受限处理器的电路仍然可以被其他处理器当作 REF 目标，读取电路的功能（运行、挖矿、REF 解析、ERC-6551 账户）都不需要知道这项设置。它必须是单向的，否则创建者可以在买家依赖它之后再解除限制。普通钱包作为创建者也可以限制自己的处理器，这是它自己的选择，只影响它自己的集合。参考 Vault 已经在创建处理器后立即调用 `restrictTapeoutToCreator()`（第 4 节，限制 gas 并忽略失败），所以只要 TapeOut 以这个选择器和这个含义采纳改动，此后发行的每个集合从第一个区块起就是受限的，不需要新的登记合约。
+
+#### 12.3 延迟流片（评估）
+
+盲盒凭证（第 13.4 条）之所以是另一个 NFT，是因为 TapeOut 的电路只有流片时才存在，而流片就会公开网表。TapeOut 可以改为允许处理器的创建者先铸造电路、后写网表：`reserve(to)` 给 `to` 铸一个没有网表的电路编号，不消耗晶体管；`fill(id, netlist, nIn, nOut)` 只能由创建者调用一次，这时才扣除网表所需的晶体管，并永久固定网表。这样盲盒本身就是电路：开盒前后是同一个合约、同一个编号，所有挂单和出价都能延续，一个项目只有一个集合，而不是一个凭证合约加一台处理器。
+
+这只能通过升级 TapeOut 的处理器实现来做到，由 TapeOut 决定。对于已预留但未写入网表的电路，它必须保证：`eval`、`step` 和 `circuitInfo` 回滚或明确标示，`netlist` 为空；流片时它不能作为 REF 目标（REF 检查要读取目标的引脚数，而这时还没有；否则一个电路就会依赖以后才确定的行为）；挖矿以及其他读取电路网表或行为的功能都忽略它；`fill` 对网表的检查与 `tapeout` 完全相同，所以工具要在预留之前就排除无法流片的网表（例如超出大小上限的）。索引器和市场要把未写入的电路显示为“未开”，TAP-02 也需要描述这种新状态。对本协议而言，采用延迟流片的盲盒是一个新的 Vault 实现，由与现有登记合约并存的一个新登记合约部署使用（登记合约的实现是固定的，第 4.1 条）；认证改在 `fill` 时进行，那时作品才真正存在。已经发行的集合继续使用凭证。我们建议 TapeOut 把它和第 12.2 条一起评估，但本提案的任何部分都不依赖它；第 13.4 条的凭证在现有合约上就能工作。
+
+### 13. 隐藏发售（发售方式 1 和 2）
+
+即时流片的作品清单在发售前公开，任何人都能看出哪件稀有，自己指定作品的买家可以只挑稀有的。两种隐藏方式下，买家买的是某个**价格档**里的一个**名额**，不能选作品；名额分到哪件作品由发行时已承诺的随机数决定，买家无法预测，策展人和负责交付作品的平台也无法挑选。尚未流片的作品一直不公开。流片会公开网表，所以只有在名额的随机数确定之后才流片，由持有未公开作品的一方（实际上是平台服务器）发出第二笔交易；盲盒在开盒后任何人都可以发出。实现隐藏方式的 Vault 必须遵守第 6 节第 1–9 条和本节。
+
+#### 13.1 价格档和名额
+
+发行时策展人固定各价格档：`poolPrices` 和 `poolCounts`（最多 64 档，每档至少一件作品），且 `count = Σ poolCounts + reserved`。第 `p` 档包含作品编号 `[start_p, start_p + count_p)`，`start_0 = 0`，`start_{p+1} = start_p + count_p`；国库预留作品排在所有价格档之后。价格档的价格和数量都是公开的（`poolPrice(p)`、`poolCount(p)`、`poolStart(p)`、`poolSold(p)`；`POOLED()` 是所有价格档的作品总数）。
+
+`buySlot(uint32 pool, address recipient)`（`0x10431d45`）出售该档的下一个名额：买家用原生币支付 `poolPrice(pool) + circuits.TAPEOUT_FEE() + REVEAL_FEE()`（代币计价时，价格用代币付，两项费用用原生币付）。价格当场付给收款方（第 6.7 条）；两项费用留在 Vault 里归这个名额使用。名额按购买顺序在所有价格档之间统一从 1 编号；`slots(slot)`（`0x387dd9e9`）返回 `(holder, boughtBlock, pool, pos, state, paid, feeHeld)`，其中 `pos` 是名额在本档名额中的位置，`state` 为 1 待交付、2 已交付、3 已退款。预售与第 6 节相同，用 `buySlotPresale(pool, recipient, quota, tier, allowProof, presalePrice, presaleProof)`（`0xb49665be`），预售价按价格档给出：`keccak256(bytes.concat(keccak256(abi.encode(uint256 chainId, address registry, address curator, bytes32 keccak256("TAP-curated-presale-pool-price"), bytes32 root, uint256 pool, uint32 tier, uint256 presalePrice))))`，不得高于该档价格。单钱包限额、暂停和延期与第 6 节相同。事件：`SlotBought(uint256 indexed slot, uint32 indexed pool, address indexed recipient, uint256 price)`。
+
+#### 13.2 隐藏作品清单
+
+作品 `index` 的叶子为
+
+```
+hiddenLeaf = keccak256(bytes.concat(keccak256(abi.encode(
+    uint256 chainId, address registry, address curator, bytes32 keccak256("TAP-curated-hidden-work"),
+    uint256 index, bytes32 keccak256(netlist), uint32 nIn, uint32 nOut, uint32 pool, bool reserved))))
+```
+
+国库预留作品的 `pool = 2³² − 1`。根是一棵**按位置**的树，而不是排序配对的树：设 `d` 为满足 `2^d ≥ count` 的最小整数，叶子 `i` 位于 `2^d` 个位置中的第 `i` 个，空位置为 `bytes32(0)`，父节点为 `keccak256(左 ‖ 右)`，证明恰好是 `d` 个兄弟节点，按位置的各个二进制位决定左右。Vault 在等于作品编号的位置上核对每件作品（`WORK_DEPTH()` 即 `d`）。按位置的树每个编号恰好只有一片叶子；排序配对的树则可以为同一编号藏第二片叶子，开盒前谁也看不到，交付方就能在两件作品之间挑选。名额秘密值（第 13.3 条）和 `metadataRoot`（第 13.5 条）也使用同样的构造。
+
+策展人不得在作品流片之前公开其网表或标题；发售结束后（售罄或已过结束时间），必须公开全部叶子（设计、标题、价格档、预留标记）、第 13.5 条的元数据内容，以及（即时揭晓）全部名额秘密值。验证方据此重建根、`metadataRoot` 和 `secretsRoot`，用链上记录重算每一次抽取或分配，并把每件交付的电路与它应得的作品比对。在此之前，买家依靠的是承诺：谁也不能交付清单以外的作品，也不能交付随机数所选之外的作品。
+
+#### 13.3 即时揭晓（发售方式 1）
+
+发行时策展人固定 `secretsRoot`（`SECRETS_ROOT()`，`0x105a4a9d`）：每个名额一个秘密值组成的按位置的树（第 13.2 条，深度 `SECRET_DEPTH()`），名额 `k` 在位置 `k − 1`，叶子为 `keccak256(bytes.concat(keccak256(abi.encode(uint256 chainId, address registry, address curator, bytes32 keccak256("TAP-curated-slot-secret"), bytes32 root, uint256 slot, bytes32 secret))))`。工具随机生成秘密值，只有交付作品的一方（平台服务器）持有。
+
+从购买区块的下一个区块起，`fulfill(slot, secret, secretProof, work, uri)`（`0x0641cb89`，`work` 为 `(index, netlist, nIn, nOut, proof)`）抽出名额的作品并流片给名额持有人：
+1. 同一价格档的名额严格按购买顺序交付（否则 `NotItsTurn`）；各档互不影响。
+2. `h` 是名额锚定区块（即购买区块，除非重新锚定过，见下文）下一个区块的哈希：如果已被锁定就用锁定的值，否则用 `blockhash(锚定区块 + 1)`。如果这个哈希从未被锁定、而且已经读不到（超过 256 个区块），这个名额就不能抽取（`HashExpired`），要先重新锚定。
+3. `seed = keccak256(abi.encode(secret, h))`；设 `r` 为该档剩余作品数，`j = uint256(seed) mod r`。该档剩余位置组成一个数组，初始为 `0 … count_p − 1`；抽中的位置是第 `j` 个元素，它被最后一个元素替换，数组长度减一（“交换后删除”）。抽中的编号是 `start_p` 加上抽中的位置，由 `Drawn(uint256 indexed slot, uint256 indexed index)` 记录。
+4. 调用者提交抽中的作品及其证明；Vault 两者都核对（`WrongWork(expected)`、`InvalidProof`），然后流片、认证，并用普通的 `transferFrom` 发给持有人，因此持有人合约无法卡住本档的队列。`uri`（可选）是该作品自己的内容寻址元数据文件（第 11 节）；交付时没带文件的电路，之后可由策展人补一次（`declareURI(slot, uri)`，`0x0d061062`）。`circuitOfSlot(slot)`（`0xc64c35e2`）返回电路。
+
+买家购买时无法预知 `h`；服务器的秘密值在发行时就已固定、交付顺序也是固定的，`h` 出现之后它无法选择结果，只能决定交不交付。由于 `blockhash` 只能读 256 个区块，Vault 会在有人锁定后保存哈希，使拖延不改变任何结果：每笔购买、每次 `fulfill` 和每次 `lockHash(slot)`（`0x0448662b`，任何人都能调用）都会锁定所有更早锚定区块已经存在的下一个哈希（`lockedHash(blockNumber)`）。如果 256 个区块内没有任何人操作，哈希就没了；这时任何人都可以调用 `rearm(slot)`（`0x57e12865`，事件 `Rearmed(uint256 indexed slot, uint256 anchorBlock)`），把当前区块设为这个名额新的锚定区块。不使用固定的兜底值，因为秘密值持有者会事先知道兜底值下的结果，可以靠拖延来选择它；重新锚定只有在 256 个区块里没人锁定哈希、整档队列都停着（链上可见）时，才会给服务器第二个结果。
+
+只有当某档的下一个名额因 `TAPEOUT_FEE()` 上涨、超过它所存的金额而无法交付时（第 13.6 条；任何人也可以改为给它补钱，`topUp(slot)`，`0x50017f3e`），策展人才能用 `refundPending(slot, secret, secretProof)`（`0x7660c334`）退还它，随交易恰好附上该名额的价格（原生币），或事先授权给 Vault（代币）。之所以只限这种情况，是因为策展人通过平台可以在交付前算出名额的抽取结果，否则就能专门退掉抽中稀有作品的买家。抽取照常进行，抽中的作品从发售中作废，所以退款不改变任何其他名额的结果，也不能借此把某件作品留下；持有人收回价格、流片费和揭晓 gas 费。买家没有可以申请的退款，也没有自动退款。
+
+#### 13.4 盲盒发售（发售方式 2）
+
+Vault 本身就是本集合盲盒凭证的 ERC-721 合约：名称为“<集合名> · blind box”，代号为“<代号>BOX”，凭证编号 = 名额编号。每个名额给接收人铸一张凭证；领取之前凭证都可以转让（`transferFrom`、`safeTransferFrom`、授权），任何时候都不冻结。登记合约的 `isBlindBoxPass(vault)` 为真。种子确定之前，`tokenURI(凭证)` 为 `PASS_URI`（发行时固定的内容寻址文件，或 `""`）；种子确定之后，为这张凭证将要领取的作品的 `"<metadataURI>/<index>.json"`，所以任何市场在领取前看到的都是真实结果。
+
+发行时策展人固定 `SECRET_HASH()`（`0x7975d3cf`）`= keccak256(abi.encode(secret))`。所有价格档售罄或已过销售结束时间之后，策展人可以在任何时候（没有期限）调用 `reveal(secret, metadataURI)`（`0x66d8c463`）：核对秘密值，记下它和开盒区块，并声明集合的元数据目录（第 11 节）。种子由开盒的下一个区块确定：`seed = keccak256(abi.encode(secret, blockhash(revealBlock + 1)))`，由 `fixSeed()`（`0x0326fe7e`，事件 `SeedFixed(bytes32 seed)`）写入，任何人都可以调用，第一次领取也会调用它。如果 256 个区块内没人调用，哈希就没了，这时 `fixSeed` 改为把当前区块设为新的锚定区块（`Rearmed(uint256 anchorBlock)`），理由同第 13.3 条。开盒的人在这个哈希出现之前就已经公开了秘密值，所以既无法预知结果，也无法重来，除非 256 个区块里根本没有人确定种子；平台会在开盒后第二个区块就确定。名额 `s`（第 `p` 档，位置 `pos`）分到
+
+```
+index = start_p + permute(pos, count_p, keccak256(abi.encode(seed, p)))
+```
+
+其中 `permute(x, n, key)`（`0x65fef13f`）是 `2k` 位上的 4 轮 Feistel 网络，`k ≥ 1` 是满足 `4^k ≥ n` 的最小值：把 `x` 分成 `l = x >> k` 和 `r = x & (2^k − 1)`，对 `round = 0 … 3` 重复 `(l, r) = (r, l XOR (uint256(keccak256(abi.encode(key, round, r))) & (2^k − 1)))`，令 `x = (l << k) | r`；整个网络重复执行（“循环行走”），直到 `x < n`。它是 `[0, n)` 上的一一映射，所以同一档的凭证分到的作品互不相同；某档没有售罄时，未售出位置对应的作品永远不会流片。`assignedIndex(凭证)`（`0xa36742d6`）返回结果。
+
+`redeem(ids, works)`（`0x49851038`）任何人都可以分批调用：对每张待领取的凭证，核对作品正是分配的那件，销毁凭证，流片，并发给那一刻的凭证持有人，全部在同一笔交易里完成，所以任何时刻一个名额要么是凭证、要么是电路，不会两者都有。批次中已交付或已退款的凭证会被跳过。`circuitOfSlot(凭证)` 返回电路，市场据此把凭证的挂单接续到电路上。
+
+策展人可以用 `refund(ids)`（`0xaa613df5`）退还凭证，随交易恰好附上价格（原生币）或事先授权（代币）：开盒前任何未领取的凭证都可以退；开盒后只能退因 `TAPEOUT_FEE()` 上涨、超过凭证所存金额而无法领取的凭证，这样知道分配结果的策展人无法挑选让哪些买家失去作品（持有人可以给凭证补钱 `topUp` 并自己领取来保护它）。持有人收回价格、流片费和揭晓 gas 费；凭证销毁，它的作品永不出售。
+
+#### 13.5 隐藏发售的元数据
+
+发行时策展人固定 `METADATA_ROOT()`（`0xb11bc14f`）：每件作品一片叶子组成的按位置的树（第 13.2 条），承诺的是元数据的内容，而不是文件（图片地址要上传后才知道）：
+
+```
+metadataLeaf = keccak256(bytes.concat(keccak256(abi.encode(bytes32 keccak256("TAP-curated-metadata-leaf"),
+    uint256 index, bytes32 keccak256(bytes(title)), bytes32 keccak256(bytes(description)),
+    bytes32 keccak256(attributes), bytes32 imageSha256))))
+```
+
+其中 `attributes` 是 UTF-8 的 JSON 数组 `[{"trait_type":…,"value":…},…]`，按列表顺序，键按这个顺序，没有空格，非 ASCII 字符不转义（即 `JSON.stringify` 的结果）；`imageSha256` 是图片文件的 SHA-256（没有图片为 0）。Vault 只存根，文件与根的核对在链下进行。即时揭晓时，服务器交付每件作品时上传它的图片和元数据文件，并把文件传给 `fulfill`，登记合约的 `tokenURI` 对这件电路返回该文件（`declareTokenURI(circuits, tokenId, uri)`，`0x98cb20bd`，只有 Vault 能调用，每件一次，必须内容寻址）；其余作品在发售结束后上传。盲盒发售时，策展人在开盒前上传全部文件，并把目录传给 `reveal`。
+
+#### 13.6 揭晓 gas 费
+
+流片隐藏作品的交易不是买家发的，所以由买家预付它的 gas：每个名额带有 `REVEAL_FEE()`（`0xc9cd5d7a`），即发行时固定的原生币金额（工具按该档最大网表、参考 gas 价和余量估算）。交付时名额的预算是它付的流片费加揭晓 gas 费，减去当时的 `TAPEOUT_FEE()`（为负则 `FeeShortfall`）。调用者拿回 `min(gasUsed × min(tx.gasprice, REVEAL_GAS_PRICE), 预算)`，其余在同一笔交易里退给持有人（无法接收时记入 `owedNative`）。`REVEAL_GAS_PRICE()`（`0xb5edbfbb`）是发行参数（`revealGasPrice`，不能为 0；工具默认取揭晓 gas 费刚好够最大作品时的 gas 价），这样调用者无法靠出高 gas 价拿走名额的预算（出块者打包自己的交易就能零成本这样做）。`gasUsed` 的计量：`fulfill` 为这次调用消耗的 gas 加 21,000，再加交付所需调用数据每字节 16（网表、每个证明元素 32 字节，其余部分按 640 字节计）；`redeem` 为每张凭证自己的 gas 和所需调用数据，加上交易其余部分的平均分摊。所以在调用数据里塞多余字节得不到报销。任何人都可以用 `topUp(slot)`（`0x50017f3e`）给待交付的名额补钱。一个名额的揭晓 gas 费绝不会用于别的名额。gas 价高于预算所能覆盖时，服务器可以等 gas 价回落，或给名额补钱。被退款的名额原数退回揭晓 gas 费和补的钱。
+
+#### 13.7 国库预留与收尾
+
+隐藏发售的预留作品用 `claimReservedBatch(works)`（`0x8549fef1`，只有策展人能调用）领取，但只能在所有价格档售罄或已过销售结束时间之后（领取会公开网表），并且只能是排在价格档之后的编号。`finalize` 另外要求所有名额都已交付或退款；盲盒发售还有凭证时，就要等开盒之后。
+
+#### 13.8 哪些事情需要信任谁
+
+谁都不能交付已承诺清单以外的作品，也不能把同一个编号交付两次；买家无法选择或预知自己的作品。剩下的几点在这里明确写出，好让前端如实告诉用户：
+1. **可用性。** 即时揭晓中，持有秘密值和未公开作品的一方可以延迟或停止交付；盲盒发售中，开盒时间由策展人决定，策展人也可能一直不开盒。买家的付款已经付给收款方（第 6.7 条），所以只有策展人能退款，而且只限第 13.3、13.4 条的情况。
+2. **拖过 256 个区块。** 哈希出现之后，秘密值持有者无法选择结果，除非它能让 256 个区块里没有任何人锁定哈希（即时揭晓）或确定种子（盲盒），然后重新锚定。每笔购买和交付都会锁定哈希，任何人都能锁定，平台也应在几个区块内完成；拖延在链上可见（整档队列停住、发出 `Rearmed`）。
+3. **出块者。** 区块哈希来自锚定区块之后那个区块的出块者。盲盒的秘密值那时已经公开，所以持有凭证（或被持有人收买）的出块者可以尝试不同的区块、留下它喜欢的哈希；即时揭晓中，出块者只有与秘密值持有者合谋才能这样做。这是区块哈希随机数的极限；如果某条链有可靠的可验证随机函数，可以替换区块哈希，本节其余部分不变。
+4. **费用。** 揭晓 gas 费设得太低，或 TapeOut 提高了流片费，交付都会推迟，直到有人给名额补钱。
+
+发售结束后公开的清单让任何人都能事后核对每一次交付（第 13.2 条）。
+
 ## 设计理由
 
 - **看来历，不看内容。** 三类外来电路中，有两类除了原始网表字节以外，和官方电路在处理器合约的任何接口上都一样，其中一类连字节都一样。唯一能在所有情况下区分真假的，是“谁流片的”。在流片当下记录它，任何人都能读取，不必相信策展人事后的说法或某个索引服务。
@@ -272,6 +429,15 @@ function tokenURI(uint256 id) public view returns (string memory) {
 - **为什么不要求与 tapeout.net 编辑器逐字节一致。** 官方身份来自被认证的流片，而不是重新推导网表。叶子承诺的就是 Vault 实际流片的字节。
 - **为什么预售价单独做一张价目表。** 项目常常用更低的价格回馈白名单，有时不同名单的价格还不一样。如果在每个作品叶子里再放一个价格，每件作品只能有一个预售价，作品清单的格式也要改；单独一张 `(index, tier, price)` 价目表不改作品清单，可以有任意多个档位、每件作品每档任意的绝对价格，并且和作品清单一样在发行时固定。Vault 在链上再核对一次预售价不高于作品自己的价格，所以出错或恶意的价目表也不会让预售比公开发售更贵。
 - **为什么价格可以用代币计，而流片费仍用原生币。** TapeOut 上的社区常常想用自己的代币（例如 BEM）而不是链的原生币发售。TapeOut 的 `tapeout` 和 `createCPU` 用原生币收费，本提案无法改变，所以代币发售仍需要一小笔原生币；Vault 把两者分开（`msg.value` 恰好是流片费），两者不会被混淆。代币是一个发行参数，而不是登记合约里的一张名单，所以不需要任何人审批代币，某条链以后出现的代币也不用部署任何东西就能使用；代价是策展人可能选了行为异常的代币，但这只影响那一个集合（见安全考虑）。要求恰好收到全额，是因为转账扣费的代币会让 Vault 给收款方记入从未收到的代币，导致最后一笔提取失败。
+- **为什么收入当场付出，并有兜底。** 艺术家希望每卖出一件作品，收入就到账，而不是留在合约里等人提取。以前采用“自行提取”，是因为直接转账一旦失败（收款合约拒收原生币、代币拉黑某个地址），每笔购买都会失败，整个发售就卡住了。用限制 gas 的调用直接付款、只把失败的那笔留给收款方，两者兼得：收入当场到账，任何收款方都卡不住发售。收款地址与策展人分开，项目方可以用多签收款，而用策展人私钥发行和管理发售；收款地址会变，所以可以更换，由不可更换的策展人决定。
+- **为什么有官方编号，为什么要按顺序发售。** 持有人把作品叫作“#N”，大多数集合里，大家期望项目官网、市场和 TapeOut 上的 #N 是同一个电路。买家可以按任意顺序挑选作品时，清单编号不可能是这个数，因为 TapeOut 按流片顺序编号。所以登记合约把官方流片顺序记为官方编号，在有人塞进包装壳之前它都等于 TapeOut 编号；按顺序发售则让事先固定的清单编号等于这个顺序。用“组”表示同款多份，让最常见的项目形态（一个设计卖几千份）每个设计只需一片叶子，工具也只存一次设计。预留的组排在最前面，因为排在后面的预留组要么会卡住发售，要么在发售结束仍未卖完时再也领取不到。
+- **为什么隐藏发售有两种方式。** 有的项目希望买家立刻看到作品，有的项目想要盲盒的悬念、发售结束后再开；两者都需要同一个保证：谁都看不到、也挑不了稀有作品。流片会公开网表，所以两种方式都只能在买家付款、随机数确定之后，用第二笔交易流片。即时揭晓逐个名额进行，晚一个区块，每个名额一个秘密值，所以无法用公开数据算出结果；盲盒则在发售结束后对全部名额一次完成，在此期间需要一张可转让的凭证，因为电路还不存在（第 12.3 条说明了 TapeOut 可以怎样免掉凭证）。
+- **为什么盲盒要先公开秘密值、再取区块哈希。** 如果策展人在区块 B 发起开盒请求、再在 256 个区块内公开秘密值，那么 B + 1 一出现，策展人就能算出结果，不满意就不公开、重新请求。先公开秘密值、再取下一个区块的哈希，策展人就没有可以重来的余地。即时揭晓用发行时就固定的秘密值和固定的交付顺序达到同样效果：服务器知道自己的秘密值，但不知道未来的哈希；哈希出现之后，它只能交付抽中的那件。
+- **为什么要锁定哈希，为什么过期后重新锚定而不用兜底值。** 256 个区块后区块哈希就读不到了。固定的兜底值（例如 0）会被秘密值持有者事先知道，它可以据此提前安排、买卖对自己有利的名额，再靠拖延选中它。重新锚定到新区块，则每个结果在它的区块出现之前都无人知道。每笔购买、每次交付、每次 `lockHash` 都会锁定所有待锁的哈希，所以实际上不会过期：过期需要 256 个区块里没有任何人（买家、平台、后来的购买）碰过 Vault，同时整档队列停着让所有人看见。
+- **为什么退款要作废抽中的作品，为什么要限制退款。** 如果被退款名额的作品放回本档，知道秘密值的策展人就可以退掉抽中最稀有作品的名额，把它们引向后面的名额，或者让它们留着不卖给自己。先抽取、再作废抽中的作品，退款对其他任何人都没有影响。即便如此，能在交付前算出抽取结果的策展人，仍可以专门退掉抽中稀有作品的买家，让这些作品永远不出现；所以只有名额无法交付时（TapeOut 的流片费涨到超过它所存的金额）才允许退款；盲盒在开盒前也可以退，那时谁都不知道分配结果。
+- **为什么隐藏清单用按位置的树。** 即时流片在开售前公开每片叶子，谁都能看到某个编号是否多了一片叶子。隐藏发售在发售结束前什么都不公开，所以某个编号的第二片叶子、某个名额的第二个秘密值，都会让交付方在看到区块哈希后二选一，而且要事后才会被发现。每个位置恰好一片叶子、并由 Vault 核对位置的树，在链上就排除了这种可能，而且不增加成本。
+- **为什么揭晓 gas 由买家预付。** 流片隐藏作品的交易不是买家发的，gas 由别人先付。让策展人在 Vault 里预存 gas，会多一笔要管理的余额，也多一种让所有揭晓停下来的方式；每个名额一笔固定费用、由买家随名额一起支付，按调用者的实际 gas 报销、余下的退给持有人，每个名额都自给自足，一个名额永远不替另一个付钱。买家的总成本也与一笔流片差不多，因为最贵的部分（存网表）只是挪到了第二笔交易。
+- **为什么 Vault 是克隆。** 三种发售方式的代码超出了单个合约的大小上限（EIP-170）。在登记合约里为每种方式固定一个实现，把每个 Vault 创建为它的 EIP-1167 克隆，每部分都在上限之内，发行也便宜得多，核对也简单：验证方只需核对一次登记合约和三个实现的代码，Vault 的代码就是指向其中之一的 45 字节代理。
 - **为什么平台分成最多 10% 且没有管理员。** 发行工具常由平台替艺术家运行。限制分成上限并去掉所有管理权限，艺术家在发行后就不需要信任平台。
 
 ## 向后兼容
@@ -282,21 +448,21 @@ function tokenURI(uint256 id) public view returns (string memory) {
 
 ## 测试用例
 
-参考实现包含 64 个 Foundry 测试，可以在 BNB Smart Chain、X Layer 或 Base 的主网分叉上运行（`forge test --fork-url https://bsc-dataseed.bnbchain.org`、`https://rpc.xlayer.tech` 或 `https://mainnet.base.org`），测试会自动选用该链的工厂和为该链生成的作品清单。作品清单是参考工具生成的 7 个临时测试电路：翻转触发器（toggle）、4 位计数器、7 位 LFSR、异或门、一件 REF 作品（在 BNB Smart Chain 上引用创世 13 号电路并加一位奇偶校验输出；在 X Layer 和 Base 上引用处理器 `0x0565EA48CA41Ae559d8d491dbb0a9ec945DB551b` 的 1 号电路并加一个取反输出），以及两件预留给国库的作品（TAP-02 测试向量 `popcount8_3151` 和一个使用中文标题的与门）。2026-10-30 在三条链上全部通过（BEM 测试只在 BNB Smart Chain 上运行，其他链上跳过），各条链上的合约完全相同；下面的 gas 和费用数字来自 BNB Smart Chain（免费公共节点只保留近期状态，所以测试分叉的是最新区块，而不是固定区块）。测试如下：
+参考实现包含 82 个 Foundry 测试（`test/Curated.t.sol` 65 个，`test/Modes.t.sol` 17 个），可以在 BNB Smart Chain、X Layer 或 Base 的主网分叉上运行（`forge test --fork-url https://bsc-dataseed.bnbchain.org`、`https://rpc.xlayer.tech` 或 `https://mainnet.base.org`），测试会自动选用该链的工厂和为该链生成的作品清单。作品清单是参考工具生成的 7 个临时测试电路：翻转触发器（toggle）、4 位计数器、7 位 LFSR、异或门、一件 REF 作品（在 BNB Smart Chain 上引用创世 13 号电路并加一位奇偶校验输出；在 X Layer 和 Base 上引用处理器 `0x0565EA48CA41Ae559d8d491dbb0a9ec945DB551b` 的 1 号电路并加一个取反输出），以及两件预留给国库的作品（TAP-02 测试向量 `popcount8_3151` 和一个使用中文标题的与门）。`test/Modes.t.sol` 另用三份由同样电路生成的样例：一个按顺序发售的集合（两份预留的与门、五份翻转触发器、三份异或门，`copies`），以及一个即时揭晓和一个盲盒发售（`reveal`、`blindbox`），各有一个四件作品的普通档（三份翻转触发器和一个异或门）、一个两件作品的稀有档（计数器和 LFSR）和一件预留的与门。2026-11-01 在三条链上全部通过（BEM 测试只在 BNB Smart Chain 上运行，其他链上跳过），各条链上的合约完全相同；下面的 gas 和费用数字来自 BNB Smart Chain（免费公共节点只保留近期状态，所以测试分叉的是最新区块，而不是固定区块）。测试如下：
 
 | 测试函数 | 测试 | 证明了什么 |
 |---|---|---|
-| `test_Launch_AtomicAndVerified` | 原子发行 | 一笔交易完成创建、铸完（非零单价，5 批）、绑定、锁定元数据目录、退回余款；444 万 gas；发行者实付正好是工具预测的工厂部署费和协议费，在 BNB Smart Chain 上共 0.0015 BNB（0.001 部署费 + 5 × 0.0001） |
+| `test_Launch_AtomicAndVerified` | 原子发行 | 一笔交易完成创建、铸完（非零单价，5 批）、绑定、锁定元数据目录、退回余款；183 万 gas（Vault 是克隆）；发行者实付正好是工具预测的工厂部署费和协议费，在 BNB Smart Chain 上共 0.0015 BNB（0.001 部署费 + 5 × 0.0001） |
 | `test_Launch_ZeroMintPrice` | 零单价发行 | 单价为 0 时同样可行 |
 | `test_Launch_RejectsBadParams` | 拒绝错误参数 | 平台分成超过 10%、销售结束时间不晚于开售时间、发行资金不足 |
 | `test_L2_LaunchFeeCap` | 发行费上限 | 费用超过发行者设定的上限时发行回滚 |
 | `test_H1_CopycatLaunchRejected` | 拒绝冒名发行 | 任何人都不能以别人的名义发行；复用根、自任策展人的山寨集合卖不出清单里的任何作品 |
 | `test_L3_RefundReentryBlocked` | 退款重入防护 | 策展人账户若在发行退款回调里尝试购买，会碰到重入保护（`ReentrancyGuardReentrantCall`），什么也买不到 |
 | `test_L4_TokenOfAndEditionOfDefaults` | `tokenOf` 与 `editionOf` 的默认值 | 作品流片前，`tokenOf` 报告“未流片”（绝不会当成 id 0）；非官方电路返回 `(false, 0)`；流片后作品对应到它的电路 id |
-| `test_PayeesCannotBeVaultOrRegistry` | 收款方不能是 Vault 或登记合约 | 国库和平台都不能是正在部署的 Vault、登记合约或登记合约的部署合约 |
-| `test_BuyAll_CertifyPayFinalize` | 全部售出 | 7 件作品都发出带网表哈希的 `Certified`、按正确编号认证、归买家所有（两件预留作品归国库）、网表字节与清单一致、晶体管消耗与工具预测完全相同；收入分配正确；剩余 9,814 个 NAND 和 3 个 LATCH 被销毁 |
+| `test_PayeesCannotBeVaultOrRegistry` | 收款方不能是 Vault 或登记合约 | 国库、平台和收款地址都不能是正在创建的 Vault 或登记合约，收款地址也不能是 0 |
+| `test_BuyAll_CertifyPayFinalize` | 全部售出 | 7 件作品都发出带网表哈希的 `Certified`、按正确编号认证、归买家所有（两件预留作品归国库）、网表字节与清单一致、晶体管消耗与工具预测完全相同；每笔销售当场付给平台和收款地址，Vault 里不留收入；剩余 9,814 个 NAND 和 3 个 LATCH 被销毁 |
 | `test_M1_FinalizeAfterSaleEnd` | 销售结束后收尾 | 销售结束后停止购买；还有预留作品未领取时，销毁要等宽限期结束，之后即使仍有作品未售也能销毁剩余晶体管 |
-| `test_L1_WithdrawTo` | 提到别的地址 | 收款方可以把收入提到另一个地址，其他人不行 |
+| `test_L1_RejectingPayeeAndWithdrawTo` | 拒收的收款方与代提 | 只有策展人能更换收款地址；拒收原生币的收款合约不会让购买失败，它那份记入 `owed`，并可用 `withdrawTo` 提到别的地址，其他人不行；改回普通账户后又直接到账；Vault 不能作为收款地址 |
 | `test_R1_NoWayToExtractTransistors` | R1 晶体管无法取出 | 任何人都无法转走、销毁或增发 Vault 的晶体管；售罄前且销售结束前无法收尾 |
 | `test_R2_SameNetlistElsewhereIsNotOfficial` | R2 别处的同网表不算官方 | 同一网表在别的处理器上流片不是官方；在策展处理器上别人无法流片（`ERC1155InsufficientBalance`） |
 | `test_R3_RefWrapperIsNotOfficial` | R3 REF 包装壳不算官方 | 陌生人零晶体管流片 REF 包装壳进入策展集合，`circuitInfo` 与官方相同，但不是官方 |
@@ -307,14 +473,15 @@ function tokenURI(uint256 id) public view returns (string memory) {
 | `test_Sale_CuratorCanPauseAndResume` | 暂停与恢复 | 只有策展人能暂停；暂停期间谁都买不了，预留作品照常领取；恢复后可以继续购买 |
 | `test_Sale_PauseAlsoStopsPresale` | 暂停也停预售 | 暂停同样停止预售，恢复后预售重新开放 |
 | `test_Sale_ExtendOnlyLaterWhileOpen` | 只能延长 | 只有策展人能延长；新的结束时间必须更晚；过了原结束时间仍可购买，收尾要等到新的结束时间；新的结束时间过后，既不能再延长，也不能重新开放 |
-| `test_Token_BuyAndWithdraw` | 代币计价的购买与提取 | 以 ERC-20 计价的集合里，买家用代币付价格，原生币只付流片费（用原生币付价格会被拒绝，没有授权的购买也会失败）；电路是官方作品；策展人和平台以代币提取各自的分成，Vault 里不剩任何资产 |
+| `test_Token_BuyAndWithdraw` | 代币计价的购买与提取 | 以 ERC-20 计价的集合里，买家用代币付价格，原生币只付流片费（用原生币付价格会被拒绝，没有授权的购买也会失败）；电路是官方作品；收款地址和平台当场以代币收到各自的分成，Vault 里不剩任何资产 |
 | `test_Token_PresaleAndReservedUnchanged` | 预售与预留不变 | 预售同样以代币支付；领取预留作品仍只付原生币流片费 |
 | `test_Token_RefusesFeeOnTransfer` | 拒收转账扣费的代币 | 每次转账扣 1% 的代币以 `TokenAmountMismatch` 被拒绝，作品仍未售出 |
 | `test_Token_FreeWorkAndParams` | 免费作品与参数检查 | 免费作品不需要授权；没有代码的地址不能作为支付代币，发行时被拒绝 |
-| `test_Token_BEMOnBSC` | BSC 上的 BEM | 在 BNB Smart Chain 上，BEM（`0x5ce033B2bFCa3Af30b3e8C8457DeaF776A8b695a`，8 位小数）可以作为支付代币：没有转账税，策展人以 BEM 提取分成（其他链上跳过） |
-| `test_Token_NoReturnTokenAndWithdrawTo` | 无返回值的代币与代提 | `transfer`、`transferFrom` 不返回值的代币（USDT 式）可以使用；收款方可以把代币分成提到另一个地址；登记合约不能作为支付代币 |
-| `test_Token_ReentrantTokenIsBlocked` | 回调型代币被拦截 | 购买或提取时回调 Vault 的代币会被重入保护拦下，不会多买或多付 |
-| `test_Deployer_OnlyRegistry` | 部署合约只听登记合约 | 登记合约的 Vault 部署合约属于该登记合约，拒绝其他任何调用者 |
+| `test_Token_BEMOnBSC` | BSC 上的 BEM | 在 BNB Smart Chain 上，BEM（`0x5ce033B2bFCa3Af30b3e8C8457DeaF776A8b695a`，8 位小数）可以作为支付代币：没有转账税，收款地址以 BEM 收到分成（其他链上跳过） |
+| `test_Token_NoReturnToken` | 无返回值的代币 | `transfer`、`transferFrom` 不返回值的代币（USDT 式）可以使用，直接付款也正常；登记合约不能作为支付代币 |
+| `test_Token_FailedPayoutIsKept` | 代币付款失败的兜底 | 拉黑收款地址的代币不会让购买失败；收款方那份记入 `owed`，并提到另一个地址 |
+| `test_Token_ReentrantTokenIsBlocked` | 回调型代币被拦截 | 购买或付款时回调 Vault 的代币会被重入保护拦下，不会多买或多付 |
+| `test_Clones_FixedImplementations` | 固定的实现合约 | 登记合约列出三个实现；它们都不能被初始化，已发行的 Vault 不能再次初始化，其代码是指向即时流片实现的 EIP-1167 代理；未知的发售方式被拒绝 |
 | `test_Sale_NoControlsAfterFinalize` | 收尾后不能再控制 | 收尾之后，既不能暂停，也不能延长 |
 | `test_Limit_Unlimited` | 不限制选项 | 选择“不限制”时，一个钱包可以买下全部公开作品 |
 | `test_Limit_CapsEachWallet` | 单钱包限额 | 限额为 2 时，达到限额的钱包不能再买；替别的钱包购买（无论哪个方向）都会被拒绝，且不计数；转账和预留领取不受限制 |
@@ -350,6 +517,23 @@ function tokenURI(uint256 id) public view returns (string memory) {
 | `test_Metadata_OnlyContentAddressed` | 只接受按内容寻址的目录 | `https` 网址、IPNS 名称（包括写成 base36 和 base32 CID 的 IPNS 密钥）、ENS 式域名、ArNS 名称、43 个字符的小写名称、带结尾斜杠的 CID、长度不对的 id、大写的 base32、非 base58 字符、大写的协议名都在发行时被拒绝；CIDv0、dag-pb 和 raw 类型的 CIDv1、Arweave id 被接受 |
 | `test_L5_RejectsStrayFundsAndTokens` | 拒收意外资产 | Vault 拒收普通原生币，也拒收第三方转来的本处理器电路 |
 | `test_ReentrancyFromRecipientFails` | 重入防护 | 接收方在回调里再次购买，会以 `ReentrancyGuardReentrantCall` 使整笔购买回滚 |
+| `test_Copies_SoldInOrder_SerialEqualsTapeOutId` | 同款多份按顺序发售 | 预留组领取之前什么都卖不出；不按顺序的 `buy` 被拒绝；每一份都是官方作品，官方编号 = TapeOut 编号 = 清单编号 + 1；卖完的组不再出售；每笔销售付给收款地址 |
+| `test_Copies_InjectedWrapperShiftsTapeOutIds` | 包装壳让编号错开 | 外人的 REF 包装壳占用一个 TapeOut 编号；下一件作品的官方编号比 TapeOut 编号小 1，包装壳没有官方编号 |
+| `test_Copies_PresaleByRun` | 按组的预售价 | 预售价以组的起始编号为键（价目表在测试中重建）；预售也按顺序出售 |
+| `test_Reveal_BuyDrawFulfill` | 即时揭晓：购买、抽取、交付 | 名额价格 = 价格 + 流片费 + 揭晓 gas 费，价格当场付出；购买区块内不能交付；同档名额按顺序交付，各档互不影响；错的作品和错的秘密值被拒绝；测试中重算的抽取结果一致；服务器的 gas（小作品约 575,000）从揭晓 gas 费报销，其余退给买家；电路的官方编号为 1，带自己的元数据文件 |
+| `test_Reveal_HashLockAndRearm` | 哈希锁定与重新锚定 | 连续区块的购买和之后的一笔购买锁定了两个待锁哈希，400 个区块后仍按它们抽取；哈希未锁定而过期的名额不能抽取，任何人可以重新锚定，任何人可以锁定新哈希 |
+| `test_Reveal_GasPriceCapAndTopUp` | gas 价上限与补钱 | 出 1,000 倍上限 gas 价的调用者最多按上限报销；任何人都能补钱；其余退给持有人；策展人可以给交付时没带文件的电路补一次元数据文件；Vault 不能作为接收地址 |
+| `test_Reveal_RefundVoidsTheDrawnWork` | 退款作废抽中的作品 | 只有策展人能退款，只在 TapeOut 流片费涨到超过名额所存金额时，并须恰好附上价格；买家收回价格、流片费和揭晓 gas 费；抽中的作品作废，下一个名额得到的正是它自己的抽取结果 |
+| `test_Reveal_ReservedAfterSellOutAndFinalize` | 售罄后领取预留、收尾 | 售罄前不能领取预留作品；每档最多卖出其数量；价格档内的作品不能当作预留领取；每件作品只被抽中一次；收尾要等所有名额完成 |
+| `test_Reveal_ContractHolderCannotBlockThePool` | 合约持有人卡不住队列 | 拒收 ERC-721 和原生币的持有人合约照样收到电路，下一个名额照常交付，它的揭晓 gas 退款记给它 |
+| `test_Reveal_PresalePerPool` | 按价格档的预售价 | 预售价按价格档和档位给出（测试中重建）；另一档的价格被拒绝 |
+| `test_Reveal_ParamsChecked` | 隐藏发售的参数检查 | 价格档数量对不上、没有价格档、价格超过 128 位、没有揭晓 gas 价上限、缺少或多出承诺、按顺序或带元数据目录的隐藏发售、即时流片带隐藏参数，都被拒绝 |
+| `test_Box_PassIsATransferableNFT` | 盲盒凭证是可转让的 NFT | 每个名额铸一张登记合约认得的凭证（ERC-721 及其元数据扩展），显示未开凭证的 URI；授权和转让可用，转给 Vault 或不接收的合约被拒绝；发售结束前不能开盒 |
+| `test_Box_RevealAndRedeem` | 开盒与领取 | 只有策展人能开盒，且必须是承诺的秘密值；种子和分配在测试中重算；每档都是一个排列；凭证显示结果；开盒后卖出的凭证领取给新持有人；任何人都能分批领取，重复的批次跳过已交付的凭证；错的作品被拒绝；服务器的 gas（每件小作品约 390,000）得到报销；领取预留后收尾 |
+| `test_Box_SameBlockTradeAndRedeem` | 同一区块内成交与领取 | 同一区块内先转让再领取，电路给新持有人；先领取再转让，已经没有凭证可转 |
+| `test_Box_Refunds` | 盲盒退款 | 开盒前策展人可以退还凭证（价格、流片费和揭晓 gas 费退回，凭证销毁）；开盒后只能退因 TapeOut 提高费用而无法领取的凭证；发售结束仍有未售名额时可以开盒 |
+| `test_Box_Vectors` | 测试向量 | 下面的排列和种子测试向量 |
+| `test_Box_SeedRearm` | 种子重新锚定 | 256 个区块内没人确定的种子会重新锚定到新区块；之后种子取自那个区块的下一个区块，领取正常 |
 
 测试向量取自测试样例 `test/fixtures/manifest.json`（链 id 56，登记合约 `0x00000000000000000000000000000000c0dec0de`，策展人 `0x00000000000000000000000000000000000c0ffe`），第 5、6、10、11 节的任何实现都必须得出相同的结果：
 
@@ -364,8 +548,16 @@ function tokenURI(uint256 id) public view returns (string memory) {
 | `metadata`（第 10 节）：名称 `P05 Test Collection`、代号 `P5TEST`、样例中的介绍和上面的 `titlesHash` | `0x131a0d4c42d02f4d670b1f463011bea1aa93a04665aaadcb1fe32dd663cd218c` |
 | `isContentAddressed`（第 11 节）：`ipfs://QmYwAPJzv5CZsnA625s3Xf2nemtYgPpHdWEz79ojWnPbdG`、`ipfs://bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi`、`ar://bNbA3TEQVL60xlgCcqdz4ZPHFZ711cZ3hmkpGttDt_U`、`""` | true |
 | `isContentAddressed`（第 11 节）：`ipfs://k51qzi5uqu5dlvj2baxnqndepeb86cbk3ng7n3i46uzyxzyqj2xjonzllnv0v8`、`ar://myundername_mycollectionname-permaweb123456`、`https://example.com/meta` | false |
+| 组叶子（第 5 节），样例 `copies.json`：first 2，copies 5，上面翻转触发器的 netlistHash，nIn 1，nOut 1，价格 10¹⁶ wei，非预留 | `0xf1ff4a2cd09c75999fb8275cc2685de0a3783c77a1ffeccf4b2dcc1cdb3b7569` |
+| `copies.json` 的根（三组） | `0xbb2baad141cb47fc7d721f13b9d12728c769b088c543bc49affcba97c7d5095a` |
+| 隐藏作品叶子（第 13.2 条），样例 `reveal.json`：编号 4，netlistHash `0xb221cfe81351ffd08df1f8161d9391ca77871d04e91bad296f6fbd1742cfe0b0`（4 位计数器），nIn 0，nOut 4，第 1 档，非预留 | `0xe9502f29200b13f42812b2828974b5fe8238695bc7ee3fdee7aa51ea92cc6b93` |
+| `reveal.json` 和 `blindbox.json` 七件隐藏作品的按位置的根（第 13.2 条） | `0xe43ddb96813aae72a64bbc784cfd24e1b0656902f6c1057f7f0fa9e301e855f2` |
+| 名额秘密值叶子（第 13.3 条）：上面的根，名额 1，秘密值 `0x0101…01`（32 个字节 0x01） | `0xdfd80d6c5fd641e6c34f91bc5e25ef139350adff2829885bcf261c94a1df5d24` |
+| 种子（第 13.3、13.4 条）：秘密值 `0x0101…01`，区块哈希 `0x0202…02` | `0x346d8c96a2454213fcc0daff3c96ad0398148181b9fa6488f7ae2c0af5b20aa0` |
+| `permute(x, 6, keccak256("TAP-OCCC"))`，x = 0 … 5（第 13.4 条） | 2, 5, 0, 1, 4, 3 |
+| 元数据叶子（第 13.5 条）：编号 0，标题 `Toggle`，描述 `Flips every cycle.`，属性 `[{"trait_type":"Rarity","value":"common"}]`，imageSha256 `0x1111…11` | `0xc411378a5dd39df90529f0acb1c6ce295f31cfba1586ca356bf42b41853b4384` |
 
-工具自检通过全部 13 个 TAP-02 向量（5 个合法、8 个非法）和 200 个随机画布设计；另外跑了 6,000 个随机设计（含输入、常量、LATCH 反馈、打乱文件顺序、多输出），编码后的网表与画布图在 8–24 拍内的运行结果全部一致。在本地分叉上按真实流程做了端到端演示：部署登记合约，针对它生成清单（链上检查 REF 目标），以策展人身份发行（`script/Demo.s.sol`），购买两件作品，一次领取两件预留作品，再由另一个账户流片一个 REF 包装壳。`curate verify` 报告两件作品为官方且网表一致，预留作品为官方、预留且归国库所有，包装壳为非官方——尽管它的 `circuitInfo` 完全相同；`curate checkroot` 用公开的作品重建出的根与链上一致，国库地址和预留数量也一致。
+工具自检通过全部 13 个 TAP-02 向量（5 个合法、8 个非法）、200 个随机画布设计、按位置的树，以及 `permute` 对 1 到 69 的每个档大小都是一一映射；另外跑了 6,000 个随机设计（含输入、常量、LATCH 反馈、打乱文件顺序、多输出），编码后的网表与画布图在 8–24 拍内的运行结果全部一致。在本地分叉上按真实流程做了端到端演示：部署登记合约，针对它生成清单（链上检查 REF 目标），以策展人身份发行（`script/Demo.s.sol`），购买两件作品，一次领取两件预留作品，再由另一个账户流片一个 REF 包装壳。`curate verify` 报告两件作品为官方且网表一致，预留作品为官方、预留且归国库所有，包装壳为非官方——尽管它的 `circuitInfo` 完全相同；`curate checkroot` 用公开的作品重建出的根与链上一致，国库地址和预留数量也一致。
 
 发售与验真页面（`web/index.html`）在 BNB Smart Chain、X Layer 和 Base 的本地分叉上用真实浏览器测试过（`web/run_e2e.sh`，28 项浏览器检查和一次链上 `checkroot`，三条链上全部通过，其中两项确认白名单钱包能看到并按自己档位的预售价付款；设置 `E2E_TOKEN=1` 时集合改用一个测试 ERC-20 计价，另有两项检查确认买家先授权、再用代币付款，且页面显示代币符号，在 BNB Smart Chain 和 X Layer 上通过）：能加载集合，发行清单与链上不一致时拒绝加载（哪怕只改了一件作品的价格、一个标题，或换了策展人）；已承诺的、含 HTML 的标题只显示为文字，不会执行脚本；在钱包里切换账户会断开连接；页面在自己的内容安全策略下正常运行；白名单钱包在预售期内看到并按自己的预售价购买，直到额度用完；公开发售开始后再买一件，两件都归买家所有；预留作品不向买家提供购买按钮；策展人在发售期间领取一件预留作品进国库，销售结束后再领取另一件；验真页能报告官方作品的编号和网表一致性，能识别零成本 REF 包装壳并说明原因，能报告不存在的电路；在 390 像素宽的手机屏幕上布局正常。
 
@@ -374,14 +566,16 @@ function tokenURI(uint256 id) public view returns (string memory) {
 ## 参考实现
 
 代码仓库：<https://github.com/gm-lsp/Tapeout-OCCC/tree/cf87dc39700ec54e0b7e7e6db4da22c31b672d81>（MIT）
-- `src/CuratedRegistry.sol`：登记合约兼发行器（第 3、4 节）
-- `src/CuratedVault.sol`：Vault（第 6 节），参考实现为每件作品固定价格，用原生币或 ERC-20 计价，并可按白名单档位设预售价
-- `src/CuratedVaultDeployer.sol`：为一个登记合约保存 Vault 的创建代码（第 4.1 条）
+- `src/CuratedRegistry.sol`：登记合约兼发行器（第 3、4 节）：检查发行参数，按发售方式克隆实现，记录官方编号、每件电路的元数据文件和盲盒凭证
+- `src/CuratedTypes.sol`：发行参数和发售方式编号
+- `src/CuratedVaultBase.sol`：所有 Vault 共有的部分（第 6 节）：发行、预售、单钱包限额、带 `owed` 兜底的直接付款、收款地址、预留检查、收尾、销售控制
+- `src/CuratedVault.sol`：即时流片（方式 0）：每件作品固定价格，可任意顺序，也可按顺序发售同款多份
+- `src/CuratedHiddenBase.sol`、`src/CuratedRevealVault.sol`、`src/CuratedBlindBoxVault.sol`：隐藏发售（第 13 节）：价格档和名额、按位置的树、揭晓 gas 费、退款；即时揭晓的抽取和哈希锁定；盲盒的凭证（ERC-721）、开盒、排列和领取
 - `src/interfaces/ICuratedRegistry.sol`：第 3、9、11 节的接口
 - `src/interfaces/ICircuitURIProvider.sol`：第 12 节建议 TapeOut 采用的接口
-- `tool/curate.py`：无依赖的 Python 工具，内置每条链的 TapeOut 工厂（`build` 会拒绝 RPC 不在规格所写链上的情况，`checkroot` 会核对登记合约的 `FACTORY()`）：TapeOut 画布 → TAP-02 网表编码（用 TAP-02 参考实现校验）、链上检查 REF 目标、晶体管计数、作品清单、白名单和预售价目表的 Merkle 树与证明（`allowproof`）、元数据承诺、第 11 节目录所需的元数据文件（`metadata`）、发行清单与费用上限、重建根和元数据（`checkroot`）、链上验真（`verify`）
-- `test/Curated.t.sol`、`script/Demo.s.sol`：上述测试与演示；`script/Launch.s.sol` 按清单发行集合
-- `web/index.html`、`web/app.js`、`web/run_e2e.sh`：发售与验真页面及其浏览器测试
+- `tool/curate.py`：无依赖的 Python 工具，生成 `curated-collection-manifest/8`（设计只存一次、同款多份的组、发售方式、价格档、揭晓 gas 费；隐藏发售另生成含名额秘密值或开盒秘密值的私有包和公开清单；`public` 由私有包导出公开清单，`assign` 重算抽取和分配，`proof` 输出任意作品的证明），内置每条链的 TapeOut 工厂（`build` 会拒绝 RPC 不在规格所写链上的情况，`checkroot` 会核对登记合约的 `FACTORY()`）：TapeOut 画布 → TAP-02 网表编码（用 TAP-02 参考实现校验）、链上检查 REF 目标、晶体管计数、作品清单、白名单和预售价目表的 Merkle 树与证明（`allowproof`）、元数据承诺、第 11 节目录所需的元数据文件（`metadata`）、发行清单与费用上限、重建根和元数据（`checkroot`）、链上验真（`verify`）
+- `test/Curated.t.sol`、`test/Modes.t.sol`、`script/Demo.s.sol`：上述测试与演示；`script/Deploy.s.sol` 部署三个实现和登记合约；`script/Launch.s.sol` 按清单发行集合（由 `script/ManifestParams.sol` 读取）
+- `web/index.html`、`web/app.js`、`web/run_e2e.sh`：不按顺序的即时流片集合的发售与验真页面及其浏览器测试（隐藏发售和按顺序发售由平台自己的网站提供）
 
 ## 部署
 
@@ -389,35 +583,42 @@ function tokenURI(uint256 id) public view returns (string memory) {
 
 | 链（chainId） | 合约 | 地址 | 必须指向的实现 | 只读核对方式 | 已封存？ |
 |---|---|---|---|---|---|
-| BNB Smart Chain (56) | CuratedRegistry | 待定 | 不是代理合约 | `FACTORY()` 返回 `0x68224F668083c29e9800Be2a646d42d18cedF7e2`，且运行时字节码与所链接提交的参考实现一致 | 是（无所有者、无代理） |
-| BNB Smart Chain (56) | CuratedVaultDeployer | 上面登记合约的 `DEPLOYER()` | 不是代理合约 | `REGISTRY()`（`0x06433b1b`）返回该登记合约，且运行时字节码（屏蔽不可变量后）与参考实现一致：Vault 的代码在它里面 | 是（无所有者、无代理） |
-| X Layer (196) | CuratedRegistry | 待定 | 不是代理合约 | `FACTORY()` 返回 `0x1f09DAeFA827f02CBb40967cc91b259763760761`，且运行时字节码与所链接提交的参考实现一致 | 是（无所有者、无代理） |
-| X Layer (196) | CuratedVaultDeployer | 上面登记合约的 `DEPLOYER()` | 不是代理合约 | `REGISTRY()`（`0x06433b1b`）返回该登记合约，且运行时字节码（屏蔽不可变量后）与参考实现一致：Vault 的代码在它里面 | 是（无所有者、无代理） |
-| Base (8453) | CuratedRegistry | 待定 | 不是代理合约 | `FACTORY()` 返回 `0x1f09DAeFA827f02CBb40967cc91b259763760761`，且运行时字节码与所链接提交的参考实现一致 | 是（无所有者、无代理） |
-| Base (8453) | CuratedVaultDeployer | 上面登记合约的 `DEPLOYER()` | 不是代理合约 | `REGISTRY()`（`0x06433b1b`）返回该登记合约，且运行时字节码（屏蔽不可变量后）与参考实现一致：Vault 的代码在它里面 | 是（无所有者、无代理） |
+| BNB Smart Chain (56) | CuratedRegistry | 待定 | 不是代理合约 | `FACTORY()` 返回 `0x68224F668083c29e9800Be2a646d42d18cedF7e2`，且运行时字节码（屏蔽不可变量后）与所链接提交的参考实现一致 | 是（无所有者、无代理） |
+| BNB Smart Chain (56) | CuratedVault | 上面登记合约的 `INSTANT_IMPL()` | 不是代理合约；各 Vault 是它的 EIP-1167 克隆 | 运行时字节码与参考实现一致；不能被初始化 | 是（无所有者） |
+| BNB Smart Chain (56) | CuratedRevealVault | 上面登记合约的 `REVEAL_IMPL()` | 不是代理合约；各 Vault 是它的 EIP-1167 克隆 | 运行时字节码与参考实现一致；不能被初始化 | 是（无所有者） |
+| BNB Smart Chain (56) | CuratedBlindBoxVault | 上面登记合约的 `BOX_IMPL()` | 不是代理合约；各 Vault 是它的 EIP-1167 克隆 | 运行时字节码与参考实现一致；不能被初始化 | 是（无所有者） |
+| X Layer (196) | CuratedRegistry | 待定 | 不是代理合约 | `FACTORY()` 返回 `0x1f09DAeFA827f02CBb40967cc91b259763760761`，且运行时字节码（屏蔽不可变量后）与所链接提交的参考实现一致 | 是（无所有者、无代理） |
+| X Layer (196) | CuratedVault | 上面登记合约的 `INSTANT_IMPL()` | 不是代理合约；各 Vault 是它的 EIP-1167 克隆 | 运行时字节码与参考实现一致；不能被初始化 | 是（无所有者） |
+| X Layer (196) | CuratedRevealVault | 上面登记合约的 `REVEAL_IMPL()` | 不是代理合约；各 Vault 是它的 EIP-1167 克隆 | 运行时字节码与参考实现一致；不能被初始化 | 是（无所有者） |
+| X Layer (196) | CuratedBlindBoxVault | 上面登记合约的 `BOX_IMPL()` | 不是代理合约；各 Vault 是它的 EIP-1167 克隆 | 运行时字节码与参考实现一致；不能被初始化 | 是（无所有者） |
+| Base (8453) | CuratedRegistry | 待定 | 不是代理合约 | `FACTORY()` 返回 `0x1f09DAeFA827f02CBb40967cc91b259763760761`，且运行时字节码（屏蔽不可变量后）与所链接提交的参考实现一致 | 是（无所有者、无代理） |
+| Base (8453) | CuratedVault | 上面登记合约的 `INSTANT_IMPL()` | 不是代理合约；各 Vault 是它的 EIP-1167 克隆 | 运行时字节码与参考实现一致；不能被初始化 | 是（无所有者） |
+| Base (8453) | CuratedRevealVault | 上面登记合约的 `REVEAL_IMPL()` | 不是代理合约；各 Vault 是它的 EIP-1167 克隆 | 运行时字节码与参考实现一致；不能被初始化 | 是（无所有者） |
+| Base (8453) | CuratedBlindBoxVault | 上面登记合约的 `BOX_IMPL()` | 不是代理合约；各 Vault 是它的 EIP-1167 克隆 | 运行时字节码与参考实现一致；不能被初始化 | 是（无所有者） |
 
 TapeOut 工厂地址取自 TAP-10 的部署表。各链上登记合约的地址可能不同，前端按链注明登记合约（第 7.1 条）。
 
 ## 安全考虑
 
 - **对 TapeOut 的信任。** 每条链上的工厂、处理器和晶体管合约都可被 TapeOut 多签分别升级；X Layer 和 Base 的工厂是与 BNB Smart Chain 分开的另一份部署（见 TAP-10）。分叉测试在三条链上都检验了下面这些行为。本提案依赖于：`isCPU` 正确；`tapeout` 只扣调用者的晶体管（晶体管合约有一个可由处理器合约调用的 `burnFrom`，所以升级后的处理器合约可以销毁 Vault 的库存）；供应上限不变；允许向销毁地址转账。登记合约的发行检查只在发行当时成立；已经做出的认证不受影响，因为它们记录的是流片当时的来历。
-- **内部复核。** 对参考实现做过四轮内部安全复核，每轮都由未参与编写代码的人进行。第一轮：没有严重问题；1 个高危（冒用策展人名义发行，已用第 4.1 条和绑定策展人的叶子修复）；2 个中危（一件卖不出的作品让收尾永远无法进行；给某个编号偷加叶子——已用销售结束时间和第 5 节的公开要求修复）；5 个低危（已修复：`withdrawTo`、发行费上限、发行退款重入、`tokenOf` 不再依赖 id 0、拒收外来电路）。第二轮覆盖国库预留、限额、预售、版税和网页代码，没有严重问题；合约和工具方面的问题均已修复（开启限额时只能给自己的钱包买，别人无法耗光你的额度；预售开始时间为 0、国库地址等于 Vault 或登记合约时拒绝发行；`checkroot` 改为重建全部作品和白名单，并逐项核对链上的全部发行设置），网页方面的问题也已修复（见下面“网页”一条）。第三轮对最终代码重新复核，没有严重、高危或中危问题；低危问题已修复，或列在下面（预留作品、国库合约、作品清单、销售结束时间、收款方）。第四轮复核元数据部分（第 11~12 节及工具和网页的相应代码），没有严重问题，发现的问题都已修复：图片路径中用百分号编码的 `..` 可以跳出内容地址；写成 `ipfs://` CID 的 IPNS 密钥能通过检查；43 个字符的 ArNS 子名称理论上可能被当成 Arweave id（现在由“必须含大写字母”一条排除）；工具发行前没有把目录读回核对；元数据文件并非在所有平台上都按 UTF-8 写入。每一项链上修复都有回归测试；“偷加叶子”的问题由第 5 节的公开要求处理，`checkroot` 和参考网页都会执行这项检查。
+- **内部复核。** 对参考实现做过五轮内部安全复核，每轮都由未参与编写代码的人进行。第一轮：没有严重问题；1 个高危（冒用策展人名义发行，已用第 4.1 条和绑定策展人的叶子修复）；2 个中危（一件卖不出的作品让收尾永远无法进行；给某个编号偷加叶子——已用销售结束时间和第 5 节的公开要求修复）；5 个低危（已修复：`withdrawTo`、发行费上限、发行退款重入、`tokenOf` 不再依赖 id 0、拒收外来电路）。第二轮覆盖国库预留、限额、预售、版税和网页代码，没有严重问题；合约和工具方面的问题均已修复（开启限额时只能给自己的钱包买，别人无法耗光你的额度；预售开始时间为 0、国库地址等于 Vault 或登记合约时拒绝发行；`checkroot` 改为重建全部作品和白名单，并逐项核对链上的全部发行设置），网页方面的问题也已修复（见下面“网页”一条）。第三轮对最终代码重新复核，没有严重、高危或中危问题；低危问题已修复，或列在下面（预留作品、国库合约、作品清单、销售结束时间、收款方）。第四轮复核元数据部分（第 11~12 节及工具和网页的相应代码），没有严重问题，发现的问题都已修复：图片路径中用百分号编码的 `..` 可以跳出内容地址；写成 `ipfs://` CID 的 IPNS 密钥能通过检查；43 个字符的 ArNS 子名称理论上可能被当成 Arweave id（现在由“必须含大写字母”一条排除）；工具发行前没有把目录读回核对；元数据文件并非在所有平台上都按 UTF-8 写入。第五轮复核本版本的发售方式（第 13 节、同款多份、直接收款、克隆），没有严重问题，有两个高危，全部已修复：秘密值持有者事先知道的哈希兜底值（改为重新锚定）；连续区块购买时哈希没有被自动锁定（改为锁定所有待锁哈希）；能算出抽取结果的策展人可以挑着退款（改为只能退无法交付的名额）；高 gas 价或填充调用数据可以拿走揭晓 gas 预算（改为 gas 价上限、只报销所需调用数据）；无法给交付不了的名额补钱（新增 `topUp`）；退款多付的钱留在合约里；回调代币或格式异常的返回值能让代币付款回滚；价格和费用的截断没有检查；凭证可以铸给 Vault 自己；交付后的电路无法再补元数据文件。出块者操纵哈希的问题列在第 13.8 条。每一项链上修复都有回归测试；“偷加叶子”的问题由第 5 节的公开要求处理，`checkroot` 和参考网页都会执行这项检查。
 - **元数据的可用性。** 登记合约固定的是元数据的地址，而不是它能否被访问。IPFS 上的文件如果没有人保存，就会消失；策展人最好在多个服务商处保存，或使用 Arweave。通过 HTTP 网关读取文件的前端，相信网关返回的就是地址所对应的内容；前端可以自行用地址核对内容。发行时目录无法访问或写错的集合，事后无法更正（§11.1），所以工具最好在发行前把目录读回来核对。
 - **“官方”不保证什么。** 登记合约认证的是电路的来历，而不是它的功能。策展人可以列入任何合法网表，包括引用其他处理器电路的网表，其行为取决于被引用的电路（TAP-02 安全考虑）。
 - **外来电路仍会出现在集合里。** 纯 REF 包装壳永远可以流片进任何处理器。本提案让它们可以被区分，但无法也不试图阻止它们。不遵守第 7 节的前端仍会显示它们。
-- **Vault 的资产。** Vault 持有的晶体管只能用于它自己的处理器；它还暂存销售收入，直到由固定的收款方提取或代为提取。Vault 没有所有者。每次销售和领取都先更新 Vault 的状态，再进行外部调用；所有会进行外部调用、修改状态的入口（`initialize`、`buy`、`buyPresale`、`claimReserved`、`claimReservedBatch`、`withdraw`、`withdrawTo`、`finalize`）共用同一个重入保护（`setPaused` 和 `extendSale` 不进行外部调用）；`receive` 不受重入保护，但只接收本处理器晶体管合约转来的原生币。
-- **合约买家与 EIP-7702 账户。** 电路用 `safeTransferFrom` 发送。如果接收方有代码但没有实现 `onERC721Received`，购买会整体回滚，不会损失资金；买家可以指定另一个接收地址。注意 BNB Smart Chain 和 Base 上一些广为人知的地址带有 EIP-7702 委托代码。
-- **先到先得。** 网表和证明都是公开的，开售后机器人可以立刻抢走 0 元或低价作品；两人也可能同时抢同一件，后到的交易回滚。盲盒或先承诺后揭示的发售方式可以避免这一点，并且可以基于同一个登记合约实现。
+- **Vault 的资产。** Vault 持有的晶体管只能用于它自己的处理器；它还暂存隐藏名额的流片费和揭晓 gas 费（直到使用或退回），以及没能付出去的款项（直到由收款方提取或代为提取）。Vault 没有所有者。每次销售和领取都先更新 Vault 的状态，再进行外部调用；所有会进行外部调用、修改状态的入口（`initialize`、各购买、领取、交付、退款函数、`reveal`、`withdraw`、`withdrawTo`、`finalize`）共用同一个重入保护；`setPaused`、`extendSale`、`setPayee`、`lockHash`、`fixSeed` 和凭证转让不涉及付款；`receive` 不受重入保护，但只接收本处理器晶体管合约转来的原生币。
+- **合约买家与 EIP-7702 账户。** 即时流片的电路用 `safeTransferFrom` 发送。如果接收方有代码但没有实现 `onERC721Received`，购买会整体回滚，不会损失资金；买家可以指定另一个接收地址。隐藏发售的电路在别人的交易里交付，所以用持有人无法阻止的普通 `transferFrom` 发送；不能处理 ERC-721 的持有人合约会收到一个它转不出去的电路，这是买家自己选择的接收地址。注意 BNB Smart Chain 和 Base 上一些广为人知的地址带有 EIP-7702 委托代码。
+- **先到先得。** 即时流片的网表和证明都是公开的，开售后机器人可以立刻抢走 0 元或低价作品；两人也可能同时抢同一件，后到的交易回滚。按顺序发售不存在抢同一编号，只有抢下一件。隐藏发售（第 13 节）完全取消了挑选。
+- **隐藏发售。** 第 13.8 条列出了秘密值持有者能做和不能做的事。此外：即时揭晓的秘密值就是抽取的钥匙，一旦泄露，外人可以在每次购买一个区块后算出结果，但仍然无法选择结果。揭晓 gas 费在发行时固定；gas 价高于它能覆盖的范围时，交付会等待或由服务器补差；TapeOut 把流片费提高到超过名额所存金额时，这个名额无法交付（`FeeShortfall`），之后策展人可以退款。盲盒的秘密值和目录由策展人在一次调用里给出；目录错了无法更正（第 11.1 条），所以工具要在开盒前检查。隐藏发售的买家在清单于发售后公开之前无法核对清单；前端应当说明这一点，展示各项承诺，并在清单公开后进行核对。
 - **预留作品。** 国库像持有普通电路一样持有预留作品，保护它们的是国库的私钥，建议使用多签钱包。预留作品可以一直领取到剩余晶体管被销毁为止：销售结束后，如果预留作品已全部领取，或者已过 `RESERVE_GRACE`，任何人都可以调用 `finalize` 销毁；到那时还没领取的预留作品会永久丢失。
 - **国库合约。** 预留作品用 `safeTransferFrom` 发给国库。如果国库是一个不接收 ERC-721 的合约，每次领取都会回滚，收尾后这些预留作品就丢失了。Safe 等多签钱包可以接收；策展人最好在发行后立即领取一件预留作品来确认。
 - **作品清单。** 作品叶子和白名单叶子绑定的是链、登记合约和策展人，而不是某一个集合。策展人如果在第二个集合里重复使用同一份作品清单或白名单，每份证明在两个集合里都有效（预售价叶子还包含作品清单的根，所以价目表不会带到别的集合）；工具最好为每个集合生成新的清单，前端以链 ID 和处理器地址识别集合，绝不用名称。
 - **销售结束时间。** 销售结束前，未售出的作品都可以购买，剩余晶体管也一直留在 Vault 里。如果结束时间非常遥远（测试样例用的是 2100 年），剩余晶体管实际上永远不会被销毁；策展人最好设定合理的结束时间。
-- **收款方。** 收入需要收款方自己提取。如果收款方是一个既不能接收支付资产、也不能调用 `withdrawTo` 的合约，它自己的那份收入就会被锁住；Vault 只拒绝把 Vault 自己、登记合约和登记合约的部署合约设为收款方。
-- **支付代币。** 代币由策展人选择，登记合约不做审核。代币可能被暂停、把 Vault 或某个买家列入黑名单、被升级成别的行为，或者回调买家或收款方；这时该集合的购买或提取可能失败，已在 Vault 里的收入可能被卡住。官方身份、已售作品、作品清单和其他集合都不受影响。在购买之外直接转进 Vault 的代币无法拒收、也无法取回，会一直锁在里面（原生币则会被 `receive` 拒收）。每次购买和提取都有重入保护，并先更新状态再进行外部调用；恰好收到全额的检查会拒绝少于价格到账的代币。参考页面每次只授权一件作品的价格；更大的授权也只允许这个没有所有者的 Vault 扣款，而且只在授权人自己发起的购买中。前端最好显示集合使用的代币，并在用陌生代币购买前提醒。
+- **收款方。** 收入当场付出，每笔原生币付款最多 50,000 gas，每笔代币付款最多 150,000 gas（只读代币返回值的一个字，所以消耗 gas 的回调或格式异常的返回值都不会让购买回滚），所以需要更多 gas 的收款合约（收款时要做事的合约）那份会记入 `owed`，由它自己提取。如果收款方是一个既不能接收支付资产、也不能调用 `withdrawTo` 的合约，它自己的那份收入就会被锁住；策展人可以让以后的销售付给另一个收款地址。Vault 拒绝把 0、Vault 自己和登记合约设为收款地址。策展人私钥被盗时，攻击者可以通过更换收款地址拿走以后的收入，但拿不走已经付出的。
+- **支付代币。** 代币由策展人选择，登记合约不做审核。代币可能被暂停、把 Vault 或某个买家列入黑名单、被升级成别的行为，或者回调买家或收款方；这时该集合的购买、付款或提取可能失败（失败的付款记入 `owed`；如果代币一直拒绝，记下的金额可能被卡住）。官方身份、已售作品、作品清单和其他集合都不受影响。在购买之外直接转进 Vault 的代币无法拒收、也无法取回，会一直锁在里面（原生币则会被 `receive` 拒收）。每次购买和提取都有重入保护，并先更新状态再进行外部调用；恰好收到全额的检查会拒绝少于价格到账的代币。参考页面每次只授权一件作品的价格；更大的授权也只允许这个没有所有者的 Vault 扣款，而且只在授权人自己发起的购买中。前端最好显示集合使用的代币，并在用陌生代币购买前提醒。
 - **销售控制。** 策展人可以无限期暂停购买，也可以不断把结束时间往后推，这同时会推迟收尾和剩余晶体管的销毁。暂停期间买家无法强行购买；拿到策展人私钥的攻击者可以暂停或延长销售，但拿不走收入、改不了价格、也加不了作品。持有人和已售作品的官方身份永远不受影响。前端应当读取 `paused()` 和当前的 `SALE_END()`，而不是发行时的值。
-- **策展人私钥。** 策展人地址永远不能更换。私钥一旦丢失，未领取的预留作品无法再领取，版税也无法再修改；收入仍可提取，但只能提到这个地址。这是有意的设计（见设计理由）。
+- **策展人私钥。** 策展人地址永远不能更换。私钥一旦丢失，未领取的预留作品无法再领取，版税和收款地址无法再修改，盲盒无法再开，名额也无法再退款。这是有意的设计（见设计理由）；建议策展人使用多签，盲盒发售尤其如此。
 - **纯 REF 作品。** 只由 REF 记录组成的作品不消耗晶体管，任何人都能把它的同字节复制品流片进策展处理器。复制品不是官方的，但看起来一样；工具会对这类作品发出警告。
-- **费用变化。** Vault 在购买时读取 `TAPEOUT_FEE()`，费用变化会转给买家承担，而不会导致无法销售。
+- **费用变化。** Vault 在购买时读取 `TAPEOUT_FEE()`，费用变化会转给买家承担，而不会导致无法销售。隐藏发售在交付时会再读一次，从名额所存的流片费和揭晓 gas 费中支付（第 13.6 条）。
 - **网表大小。** BNB Smart Chain 主网上超过约 34,000 字节的流片会失败（其他链的区块 gas 上限可能不同），工具会拒绝。大作品应拆成子电路，再用 REF 组合。
 - **Merkle 叶子**做了双重哈希，内部节点无法被冒充为叶子。
 - **网页。** 页面把发行清单视为不可信数据：链、RPC、登记合约和处理器地址只从本站的 `site.json` 读取（网址参数只在本机测试时有效）；在链上核对 Vault 属于该登记合约；用发行清单重建每一件作品的叶子、白名单的根和预售价目表，任何一项与链上不一致就拒绝加载；发行清单里的所有内容都只作为文字插入；脚本从本站加载，并启用严格的内容安全策略；外部 ethers 库用子资源完整性（SRI）哈希锁定。在别的集合里是官方作品的电路，只会显示“不属于本集合”，绝不显示为官方。页面还会重建元数据承诺（第 10 节），名称、代号、介绍或标题与之不一致的发行清单一律拒绝加载。

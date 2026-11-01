@@ -1,0 +1,71 @@
+{
+ "chainId": 196,
+ "registry": "0x00000000000000000000000000000000C0DEC0DE",
+ "curator": "0x00000000000000000000000000000000000C0FFE",
+ "platform": "0x0000000000000000000000000000000000001234",
+ "platformBps": 500,
+ "treasury": "0x0000000000000000000000000000000000007EA5",
+ "mintPriceWei": "10000000000000",
+ "mintBatch": 2500,
+ "saleStart": 2,
+ "saleEnd": 4102444800,
+ "limitPerWallet": false,
+ "royalty": {
+  "receiver": "0x00000000000000000000000000000000000C0FFE",
+  "bps": 300
+ },
+ "spareNand": 5,
+ "spareLatch": 3,
+ "name": "P05 Copies",
+ "symbol": "P5COPY",
+ "story": "One design sold many times, numbered in order.",
+ "sequential": true,
+ "payee": "0x000000000000000000000000000000000000BEEF",
+ "presale": {
+  "start": 1,
+  "allowlist": [
+   {
+    "address": "0x00000000000000000000000000000000000A11CE",
+    "quota": 2,
+    "tier": 0
+   },
+   {
+    "address": "0x0000000000000000000000000000000000000B0B",
+    "quota": 1,
+    "tier": 1
+   }
+  ],
+  "tiers": [
+   {
+    "name": "OG",
+    "prices": {
+     "1": "5000000000000000"
+    }
+   },
+   {
+    "name": "Friends",
+    "priceWei": "0"
+   }
+  ]
+ },
+ "works": [
+  {
+   "file": "and2.json",
+   "title": "AND (treasury)",
+   "reserved": true,
+   "copies": 2
+  },
+  {
+   "file": "toggle.json",
+   "title": "Toggle",
+   "priceWei": "10000000000000000",
+   "copies": 5
+  },
+  {
+   "file": "xor.json",
+   "title": "XOR",
+   "priceWei": "0",
+   "copies": 3
+  }
+ ]
+}

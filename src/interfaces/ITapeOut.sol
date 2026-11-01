@@ -49,4 +49,5 @@ interface ITapeOutCircuits {
     function TAPEOUT_FEE() external view returns (uint256);
     function ownerOf(uint256 id) external view returns (address);
     function safeTransferFrom(address from, address to, uint256 id) external;
+    function transferFrom(address from, address to, uint256 id) external;
 }

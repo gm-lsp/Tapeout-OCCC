@@ -6,7 +6,10 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol
 import {CuratedRegistry} from "../src/CuratedRegistry.sol";
 import {ICircuitURIProvider} from "../src/interfaces/ICircuitURIProvider.sol";
 import {CuratedVault} from "../src/CuratedVault.sol";
-import {CuratedVaultDeployer} from "../src/CuratedVaultDeployer.sol";
+import {CuratedVaultBase} from "../src/CuratedVaultBase.sol";
+import {CuratedRevealVault} from "../src/CuratedRevealVault.sol";
+import {CuratedBlindBoxVault} from "../src/CuratedBlindBoxVault.sol";
+import {LaunchParams, HiddenParams} from "../src/CuratedTypes.sol";
 import {ICuratedRegistry} from "../src/interfaces/ICuratedRegistry.sol";
 import {ITapeOutFactory, ITapeOutTransistors, ITapeOutCircuits} from "../src/interfaces/ITapeOut.sol";
 
@@ -127,12 +130,17 @@ contract CuratedForkTest is Test {
     bytes4 constant ERC1155_INSUFFICIENT_BALANCE = 0x03dee4c5;
 
     CuratedRegistry reg;
+    address IMPL0;
+    address IMPL1;
+    address IMPL2;
     string manifest;
     uint256 count;
     uint256 launchValue;
 
     address curator;
     address buyer = makeAddr("buyer");
+    // the curator's payee in these tests (the fixture's payee is the curator); a plain account, so balances are exact
+    address PAYEE = makeAddr("p05-payee");
     address attacker = makeAddr("attacker");
 
     CuratedVault vault;
@@ -156,7 +164,11 @@ contract CuratedForkTest is Test {
         } else {
             revert("fork BNB Smart Chain (56), X Layer (196) or Base (8453)");
         }
-        deployCodeTo("CuratedRegistry.sol:CuratedRegistry", abi.encode(FACTORY), REG);
+        // the three vault implementations, then the registry that clones them (at the address the leaves are bound to)
+        IMPL0 = address(new CuratedVault());
+        IMPL1 = address(new CuratedRevealVault());
+        IMPL2 = address(new CuratedBlindBoxVault());
+        deployCodeTo("CuratedRegistry.sol:CuratedRegistry", abi.encode(FACTORY, IMPL0, IMPL1, IMPL2), REG);
         reg = CuratedRegistry(REG);
         manifest = vm.readFile(path);
         count = vm.parseJsonUint(manifest, ".launch.count");
@@ -167,6 +179,7 @@ contract CuratedForkTest is Test {
         // the test actors are plain accounts (a labelled address can hold code on a live chain)
         vm.etch(buyer, "");
         vm.etch(attacker, "");
+        vm.etch(PAYEE, "");
         vm.deal(curator, 10 ether);
         vm.deal(buyer, 100 ether);
         vm.deal(attacker, 100 ether);
@@ -186,7 +199,7 @@ contract CuratedForkTest is Test {
     }
 
 
-    function _params() internal view returns (CuratedVault.LaunchParams memory p) {
+    function _params() internal view returns (LaunchParams memory p) {
         p.name = vm.parseJsonString(manifest, ".launch.name");
         p.symbol = vm.parseJsonString(manifest, ".launch.symbol");
         p.story = vm.parseJsonString(manifest, ".launch.story");
@@ -214,6 +227,22 @@ contract CuratedForkTest is Test {
         p.metadataURI = vm.parseJsonString(manifest, ".launch.metadataURI");
         p.paymentToken = vm.parseJsonAddress(manifest, ".launch.paymentToken");
         p.presalePriceRoot = vm.parseJsonBytes32(manifest, ".launch.presalePriceRoot");
+        p.saleMode = uint8(vm.parseJsonUint(manifest, ".launch.saleMode"));
+        p.sequential = vm.parseJsonBool(manifest, ".launch.sequential");
+        p.payee = vm.parseJsonAddress(manifest, ".launch.payee");
+        if (p.payee == p.curator) p.payee = PAYEE;
+        p.hidden.poolPrices = vm.parseJsonUintArray(manifest, ".launch.hidden.poolPrices");
+        uint256[] memory pc = vm.parseJsonUintArray(manifest, ".launch.hidden.poolCounts");
+        p.hidden.poolCounts = new uint32[](pc.length);
+        for (uint256 i; i < pc.length; i++) {
+            p.hidden.poolCounts[i] = uint32(pc[i]);
+        }
+        p.hidden.revealFee = vm.parseJsonUint(manifest, ".launch.hidden.revealFee");
+        p.hidden.revealGasPrice = vm.parseJsonUint(manifest, ".launch.hidden.revealGasPrice");
+        p.hidden.secretsRoot = vm.parseJsonBytes32(manifest, ".launch.hidden.secretsRoot");
+        p.hidden.secretHash = vm.parseJsonBytes32(manifest, ".launch.hidden.secretHash");
+        p.hidden.metadataRoot = vm.parseJsonBytes32(manifest, ".launch.hidden.metadataRoot");
+        p.hidden.passURI = vm.parseJsonString(manifest, ".launch.hidden.passURI");
     }
 
     struct Work {
@@ -228,16 +257,19 @@ contract CuratedForkTest is Test {
         bool reserved;
     }
 
+    /// Work `i` of a fixture whose runs are single works (manifest /8: a run names its design, stored once).
     function _work(uint256 i) internal view returns (Work memory w) {
         string memory k = string.concat(".works[", vm.toString(i), "]");
-        w.index = vm.parseJsonUint(manifest, string.concat(k, ".index"));
-        w.netlist = vm.parseJsonBytes(manifest, string.concat(k, ".netlist"));
-        w.nIn = uint32(vm.parseJsonUint(manifest, string.concat(k, ".nIn")));
-        w.nOut = uint32(vm.parseJsonUint(manifest, string.concat(k, ".nOut")));
+        w.index = vm.parseJsonUint(manifest, string.concat(k, ".first"));
+        require(vm.parseJsonUint(manifest, string.concat(k, ".copies")) == 1, "a run of copies");
+        string memory d = string.concat(".designs[", vm.toString(vm.parseJsonUint(manifest, string.concat(k, ".design"))), "]");
+        w.netlist = vm.parseJsonBytes(manifest, string.concat(d, ".netlist"));
+        w.nIn = uint32(vm.parseJsonUint(manifest, string.concat(d, ".nIn")));
+        w.nOut = uint32(vm.parseJsonUint(manifest, string.concat(d, ".nOut")));
         w.price = vm.parseJsonUint(manifest, string.concat(k, ".priceWei"));
         w.proof = vm.parseJsonBytes32Array(manifest, string.concat(k, ".proof"));
-        w.nand = vm.parseJsonUint(manifest, string.concat(k, ".nand"));
-        w.latch = vm.parseJsonUint(manifest, string.concat(k, ".latch"));
+        w.nand = vm.parseJsonUint(manifest, string.concat(d, ".nand"));
+        w.latch = vm.parseJsonUint(manifest, string.concat(d, ".latch"));
         w.reserved = vm.parseJsonBool(manifest, string.concat(k, ".reserved"));
     }
 
@@ -250,7 +282,7 @@ contract CuratedForkTest is Test {
         id = vault.claimReserved{value: fee}(w.index, w.netlist, w.nIn, w.nOut, w.proof);
     }
 
-    function _launchWith(CuratedVault.LaunchParams memory p) internal returns (uint256 gasUsed, uint256 cost) {
+    function _launchWith(LaunchParams memory p) internal returns (uint256 gasUsed, uint256 cost) {
         uint256 b0 = p.curator.balance;
         vm.prank(p.curator);
         uint256 g = gasleft();
@@ -280,7 +312,7 @@ contract CuratedForkTest is Test {
         emit log_named_uint("launch gas", gasUsed);
         emit log_named_decimal_uint("launch cost (native coin)", cost, 18);
 
-        CuratedVault.LaunchParams memory p = _params();
+        LaunchParams memory p = _params();
         assertTrue(reg.isCurated(address(C)));
         ICuratedRegistry.Collection memory col = reg.collectionOf(address(C));
         assertEq(col.vault, address(vault));
@@ -303,7 +335,7 @@ contract CuratedForkTest is Test {
     }
 
     function test_Launch_ZeroMintPrice() public {
-        CuratedVault.LaunchParams memory p = _params();
+        LaunchParams memory p = _params();
         p.mintPrice = 0;
         p.mintBatch = 0;
         // deploy fee plus one protocol fee per id (no mint price, so one mint call each), with a margin
@@ -315,37 +347,37 @@ contract CuratedForkTest is Test {
     }
 
     function test_Launch_RejectsBadParams() public {
-        CuratedVault.LaunchParams memory p = _params();
+        LaunchParams memory p = _params();
         p.platformBps = 1001;
         vm.prank(curator);
-        vm.expectRevert(abi.encodeWithSelector(CuratedVault.BadParams.selector, "platformBps"));
+        vm.expectRevert(abi.encodeWithSelector(CuratedVaultBase.BadParams.selector, bytes32("platformBps")));
         reg.launch{value: launchValue}(p);
 
         p = _params();
         p.saleEnd = p.saleStart;
         vm.prank(curator);
-        vm.expectRevert(abi.encodeWithSelector(CuratedVault.BadParams.selector, "saleEnd"));
+        vm.expectRevert(abi.encodeWithSelector(CuratedVaultBase.BadParams.selector, bytes32("saleEnd")));
         reg.launch{value: launchValue}(p);
 
         p = _params();
         uint256 tooLittle = FACTORY.deployFee() + _protocolFee(); // deploy fee and one protocol fee only
         vm.prank(curator);
-        vm.expectRevert(CuratedVault.InsufficientLaunchFunds.selector);
+        vm.expectRevert(CuratedVaultBase.InsufficientLaunchFunds.selector);
         reg.launch{value: tooLittle}(p);
     }
 
     /// L-2: the launcher caps what it is willing to pay in factory and protocol fees.
     function test_L2_LaunchFeeCap() public {
-        CuratedVault.LaunchParams memory p = _params();
+        LaunchParams memory p = _params();
         p.maxLaunchFees = p.maxLaunchFees - 1;
         vm.prank(curator);
-        vm.expectPartialRevert(CuratedVault.LaunchFeesTooHigh.selector);
+        vm.expectPartialRevert(CuratedVaultBase.LaunchFeesTooHigh.selector);
         reg.launch{value: launchValue}(p);
     }
 
     /// H-1: nobody can launch a collection in another curator's name, and a copied root is useless.
     function test_H1_CopycatLaunchRejected() public {
-        CuratedVault.LaunchParams memory p = _params();
+        LaunchParams memory p = _params();
         vm.prank(attacker);
         vm.expectRevert(CuratedRegistry.CuratorMustLaunch.selector);
         reg.launch{value: launchValue}(p);
@@ -358,7 +390,7 @@ contract CuratedForkTest is Test {
         uint256 f = ITapeOutCircuits(c).TAPEOUT_FEE();
         Work memory w = _work(3); // price 0
         vm.prank(attacker);
-        vm.expectRevert(CuratedVault.InvalidProof.selector);
+        vm.expectRevert(CuratedVaultBase.InvalidProof.selector);
         CuratedVault(payable(v)).buy{value: f}(w.index, w.netlist, w.nIn, w.nOut, w.price, w.proof, attacker);
     }
 
@@ -392,48 +424,54 @@ contract CuratedForkTest is Test {
         assertFalse(reg.isOfficial(address(0xbeef), id));
     }
 
-    /// The treasury and the platform can be neither the vault being deployed nor the registry.
+    /// The treasury, the platform and the payee can be neither the vault being created nor the registry.
     function test_PayeesCannotBeVaultOrRegistry() public {
-        // vaults are created by the registry's deployer; none of the vault, the registry and the deployer can be a payee
-        address d = address(reg.DEPLOYER());
-        address nextVault = vm.computeCreateAddress(d, vm.getNonce(d));
-        CuratedVault.LaunchParams memory p = _params();
+        // vaults are clones the registry creates
+        address nextVault = vm.computeCreateAddress(REG, vm.getNonce(REG));
+        LaunchParams memory p = _params();
         p.treasury = nextVault;
         vm.prank(curator);
-        vm.expectRevert(abi.encodeWithSelector(CuratedVault.BadParams.selector, "treasury"));
+        vm.expectRevert(abi.encodeWithSelector(CuratedVaultBase.BadParams.selector, bytes32("treasury")));
         reg.launch{value: launchValue}(p);
 
         p = _params();
         p.platform = nextVault;
         vm.prank(curator);
-        vm.expectRevert(abi.encodeWithSelector(CuratedVault.BadParams.selector, "platform"));
+        vm.expectRevert(abi.encodeWithSelector(CuratedVaultBase.BadParams.selector, bytes32("platform")));
         reg.launch{value: launchValue}(p);
 
         p = _params();
         p.platform = REG;
         vm.prank(curator);
-        vm.expectRevert(abi.encodeWithSelector(CuratedVault.BadParams.selector, "platform"));
+        vm.expectRevert(abi.encodeWithSelector(CuratedVaultBase.BadParams.selector, bytes32("platform")));
         reg.launch{value: launchValue}(p);
 
-        p = _params();
-        p.platform = d;
-        vm.prank(curator);
-        vm.expectRevert(abi.encodeWithSelector(CuratedVault.BadParams.selector, "platform"));
-        reg.launch{value: launchValue}(p);
+        address[3] memory bad = [address(0), nextVault, REG];
+        for (uint256 i; i < 3; i++) {
+            p = _params();
+            p.payee = bad[i];
+            vm.prank(curator);
+            vm.expectRevert(abi.encodeWithSelector(CuratedVaultBase.BadParams.selector, bytes32("payee")));
+            reg.launch{value: launchValue}(p);
+        }
+        // the address really is the next vault
+        (address v,,) = _launch2();
+        assertEq(v, nextVault);
+    }
 
-        p = _params();
-        p.treasury = d;
+    function _launch2() internal returns (address v, address t, address c) {
         vm.prank(curator);
-        vm.expectRevert(abi.encodeWithSelector(CuratedVault.BadParams.selector, "treasury"));
-        reg.launch{value: launchValue}(p);
+        (v, t, c) = reg.launch{value: launchValue}(_params());
     }
 
     // ------------------------------------------------------------------ sale, end to end
 
     function test_BuyAll_CertifyPayFinalize() public {
         _launch();
-        CuratedVault.LaunchParams memory p = _params();
+        LaunchParams memory p = _params();
         uint256 gross;
+        uint256 payee0 = PAYEE.balance;
+        uint256 plat0 = p.platform.balance;
         for (uint256 i; i < count; i++) {
             Work memory w = _work(i);
             uint256 nand0 = T.balanceOf(address(vault), 0);
@@ -468,7 +506,7 @@ contract CuratedForkTest is Test {
             gross += w.price;
 
             if (i + 1 < count) {
-                vm.expectRevert(CuratedVault.NotFinalizable.selector);
+                vm.expectRevert(CuratedVaultBase.NotFinalizable.selector);
                 vault.finalize();
             }
         }
@@ -480,17 +518,13 @@ contract CuratedForkTest is Test {
         for (uint256 i; i < count; i++) {
             cut += (_work(i).price * p.platformBps) / 10_000;
         }
-        assertEq(vault.owed(p.platform), cut);
-        assertEq(vault.owed(p.curator), gross - cut);
-        assertEq(address(vault).balance, gross);
-        uint256 c0 = p.curator.balance;
-        vm.prank(attacker); // anyone can trigger; funds only go to the payee
-        vault.withdraw(p.curator);
-        assertEq(p.curator.balance - c0, gross - cut);
-        vault.withdraw(p.platform);
+        // every sale was paid out at once: the platform's share to the platform, the rest to the payee
+        assertEq(p.platform.balance - plat0, cut);
+        assertEq(PAYEE.balance - payee0, gross - cut);
         assertEq(address(vault).balance, 0);
-        vm.expectRevert(CuratedVault.NothingOwed.selector);
-        vault.withdraw(p.curator);
+        assertEq(vault.owed(PAYEE), 0);
+        vm.expectRevert(CuratedVaultBase.NothingOwed.selector);
+        vault.withdraw(PAYEE);
 
         // finalize burns every leftover NAND and LATCH
         uint256 n = T.balanceOf(address(vault), 0);
@@ -505,7 +539,7 @@ contract CuratedForkTest is Test {
         assertEq(T.balanceOf(DEAD, 1) - dl, l);
         emit log_named_uint("leftover NAND burned", n);
         emit log_named_uint("leftover LATCH burned", l);
-        vm.expectRevert(CuratedVault.AlreadyFinalized.selector);
+        vm.expectRevert(CuratedVaultBase.AlreadyFinalized.selector);
         vault.finalize();
     }
 
@@ -513,15 +547,15 @@ contract CuratedForkTest is Test {
     function test_M1_FinalizeAfterSaleEnd() public {
         _launch();
         uint256 id = _buy(0, buyer);
-        vm.expectRevert(CuratedVault.NotFinalizable.selector);
+        vm.expectRevert(CuratedVaultBase.NotFinalizable.selector);
         vault.finalize();
         vm.warp(vault.SALE_END());
         Work memory w = _work(1);
         vm.prank(buyer);
-        vm.expectRevert(CuratedVault.SaleEnded.selector);
+        vm.expectRevert(CuratedVaultBase.SaleEnded.selector);
         vault.buy{value: w.price + fee}(w.index, w.netlist, w.nIn, w.nOut, w.price, w.proof, buyer);
         // reserved works are still unclaimed, so finalize waits for the grace period
-        vm.expectRevert(CuratedVault.NotFinalizable.selector);
+        vm.expectRevert(CuratedVaultBase.NotFinalizable.selector);
         vault.finalize();
         vm.warp(uint256(vault.SALE_END()) + vault.RESERVE_GRACE());
         vault.finalize();
@@ -529,20 +563,40 @@ contract CuratedForkTest is Test {
         assertTrue(reg.isOfficial(address(C), id)); // the sold work stays official
     }
 
-    /// L-1: a payee that cannot receive the native coin can send its proceeds elsewhere.
-    function test_L1_WithdrawTo() public {
+    /// L-1: a payee that refuses payments never blocks a purchase: its share is kept in `owed`, and it can send it
+    /// elsewhere with withdrawTo. The curator can change the payee at any time.
+    function test_L1_RejectingPayeeAndWithdrawTo() public {
         _launch();
-        _buy(1, buyer);
-        uint256 owed = vault.owed(curator);
-        assertGt(owed, 0);
-        address to = _eoa("cold");
-        vm.prank(curator);
-        vault.withdrawTo(to);
-        assertEq(to.balance, owed);
-        assertEq(vault.owed(curator), 0);
+        RejectPayee rp = new RejectPayee();
         vm.prank(attacker);
-        vm.expectRevert(CuratedVault.NothingOwed.selector);
+        vm.expectRevert(CuratedVaultBase.OnlyCurator.selector);
+        vault.setPayee(address(rp));
+        vm.prank(curator);
+        vault.setPayee(address(rp));
+        assertEq(vault.payee(), address(rp));
+        Work memory w = _work(1);
+        _buy(1, buyer);
+        uint256 cut = (w.price * vault.PLATFORM_BPS()) / 10_000;
+        uint256 owed = vault.owed(address(rp));
+        assertEq(owed, w.price - cut, "the share is kept for the payee");
+        assertEq(address(vault).balance, owed);
+        address to = _eoa("cold");
+        rp.pull(vault, to);
+        assertEq(to.balance, owed);
+        assertEq(vault.owed(address(rp)), 0);
+        vm.prank(attacker);
+        vm.expectRevert(CuratedVaultBase.NothingOwed.selector);
         vault.withdrawTo(attacker);
+        // a payee can be moved back to an account that accepts payments; payouts go there directly again
+        vm.prank(curator);
+        vault.setPayee(PAYEE);
+        uint256 b0 = PAYEE.balance;
+        Work memory w2 = _work(2);
+        _buy(2, buyer);
+        assertEq(PAYEE.balance - b0, w2.price - (w2.price * vault.PLATFORM_BPS()) / 10_000);
+        vm.prank(curator);
+        vm.expectRevert(abi.encodeWithSelector(CuratedVaultBase.BadParams.selector, bytes32("payee")));
+        vault.setPayee(address(vault));
     }
 
     // ------------------------------------------------------------------ R1: transistors never leave the vault
@@ -562,9 +616,9 @@ contract CuratedForkTest is Test {
         assertFalse(ok2, "burnFrom vault");
         assertFalse(ok3, "mint after the supply is exhausted");
         vm.prank(curator);
-        vm.expectRevert(CuratedVault.OnlyRegistry.selector);
+        vm.expectRevert(CuratedVaultBase.AlreadyInitialized.selector);
         vault.initialize(_params(), attacker);
-        vm.expectRevert(CuratedVault.NotFinalizable.selector);
+        vm.expectRevert(CuratedVaultBase.NotFinalizable.selector);
         vault.finalize();
         assertEq(T.balanceOf(attacker, 0) + T.balanceOf(attacker, 1), 0);
     }
@@ -628,28 +682,28 @@ contract CuratedForkTest is Test {
         uint256 v = w.price + fee;
 
         vm.startPrank(buyer);
-        vm.expectRevert(CuratedVault.AlreadyTaken.selector);
+        vm.expectRevert(CuratedVaultBase.AlreadyTaken.selector);
         vault.buy{value: v}(w.index, w.netlist, w.nIn, w.nOut, w.price, w.proof, buyer);
 
         Work memory x = _work(1);
         uint256 vx = x.price + fee;
         bytes memory bad = bytes.concat(x.netlist, hex"00");
-        vm.expectRevert(CuratedVault.InvalidProof.selector);
+        vm.expectRevert(CuratedVaultBase.InvalidProof.selector);
         vault.buy{value: vx}(x.index, bad, x.nIn, x.nOut, x.price, x.proof, buyer);
-        vm.expectRevert(CuratedVault.InvalidProof.selector);
+        vm.expectRevert(CuratedVaultBase.InvalidProof.selector);
         vault.buy{value: fee}(x.index, x.netlist, x.nIn, x.nOut, 0, x.proof, buyer);
-        vm.expectRevert(CuratedVault.InvalidProof.selector);
+        vm.expectRevert(CuratedVaultBase.InvalidProof.selector);
         vault.buy{value: vx}(x.index, x.netlist, x.nIn, x.nOut, x.price, w.proof, buyer);
-        vm.expectRevert(CuratedVault.InvalidProof.selector);
+        vm.expectRevert(CuratedVaultBase.InvalidProof.selector);
         vault.buy{value: vx}(x.index, x.netlist, x.nIn, x.nOut + 1, x.price, x.proof, buyer);
         // a valid work presented under another index
-        vm.expectRevert(CuratedVault.InvalidProof.selector);
+        vm.expectRevert(CuratedVaultBase.InvalidProof.selector);
         vault.buy{value: vx}(4, x.netlist, x.nIn, x.nOut, x.price, x.proof, buyer);
-        vm.expectRevert(abi.encodeWithSelector(CuratedVault.WrongPayment.selector, vx));
+        vm.expectRevert(abi.encodeWithSelector(CuratedVaultBase.WrongPayment.selector, vx));
         vault.buy{value: vx + 1}(x.index, x.netlist, x.nIn, x.nOut, x.price, x.proof, buyer);
-        vm.expectRevert(CuratedVault.IndexOutOfRange.selector);
+        vm.expectRevert(CuratedVaultBase.IndexOutOfRange.selector);
         vault.buy{value: vx}(count, x.netlist, x.nIn, x.nOut, x.price, x.proof, buyer);
-        vm.expectRevert(CuratedVault.ZeroRecipient.selector);
+        vm.expectRevert(CuratedVaultBase.ZeroRecipient.selector);
         vault.buy{value: vx}(x.index, x.netlist, x.nIn, x.nOut, x.price, x.proof, address(0));
         vm.stopPrank();
     }
@@ -664,19 +718,19 @@ contract CuratedForkTest is Test {
 
         vm.prank(attacker);
         vm.expectRevert(CuratedRegistry.NotVault.selector);
-        reg.bind(address(C), address(T), attacker, bytes32(uint256(1)), 1, attacker, 0, bytes32(0));
+        reg.bind(address(C), address(T), attacker, bytes32(uint256(1)), 1, attacker, 0, 0);
 
-        CuratedVault rogue = new CuratedVault(reg, _params());
+        CuratedVault rogue = new CuratedVault();
         vm.prank(address(rogue));
         vm.expectRevert(CuratedRegistry.NotBoundVault.selector);
         reg.certify(address(C), 1, 0, bytes32(0), false);
         vm.prank(address(rogue));
         vm.expectRevert(CuratedRegistry.NotVault.selector);
-        reg.bind(address(C), address(T), attacker, bytes32(uint256(1)), 1, attacker, 0, bytes32(0));
+        reg.bind(address(C), address(T), attacker, bytes32(uint256(1)), 1, attacker, 0, 0);
 
         vm.prank(address(vault));
         vm.expectRevert(CuratedRegistry.AlreadyBound.selector);
-        reg.bind(address(C), address(T), attacker, bytes32(uint256(1)), 1, attacker, 0, bytes32(0));
+        reg.bind(address(C), address(T), attacker, bytes32(uint256(1)), 1, attacker, 0, 0);
         uint256 id = _buy(3, buyer);
         vm.prank(address(vault));
         vm.expectRevert(CuratedRegistry.AlreadyCertified.selector);
@@ -699,19 +753,19 @@ contract CuratedForkTest is Test {
         Work memory w = _work(3);
         bytes memory foreign = FOREIGN.netlist(FOREIGN_ID);
         vm.prank(buyer);
-        vm.expectRevert(CuratedVault.InvalidProof.selector);
+        vm.expectRevert(CuratedVaultBase.InvalidProof.selector);
         vault.buy{value: w.price + fee}(w.index, foreign, w.nIn, w.nOut, w.price, w.proof, buyer);
     }
 
     // ------------------------------------------------------------------ misc safety
 
     function test_SaleStartIsEnforced() public {
-        CuratedVault.LaunchParams memory p = _params();
+        LaunchParams memory p = _params();
         p.saleStart = uint64(block.timestamp + 1 days);
         _launchWith(p);
         Work memory w = _work(0);
         vm.prank(buyer);
-        vm.expectRevert(CuratedVault.SaleNotStarted.selector);
+        vm.expectRevert(CuratedVaultBase.SaleNotStarted.selector);
         vault.buy{value: w.price + fee}(w.index, w.netlist, w.nIn, w.nOut, w.price, w.proof, buyer);
     }
 
@@ -729,7 +783,7 @@ contract CuratedForkTest is Test {
         bytes memory wrapper = abi.encodePacked(uint8(2), address(C), uint64(official), uint8(0), uint8(7));
         vm.startPrank(attacker);
         uint256 fake = C.tapeout{value: fee}(wrapper, 0, 7);
-        vm.expectRevert(CuratedVault.UnexpectedFunds.selector);
+        vm.expectRevert(CuratedVaultBase.UnexpectedFunds.selector);
         C.safeTransferFrom(attacker, address(vault), fake);
         vm.stopPrank();
         assertEq(C.ownerOf(fake), attacker);
@@ -754,9 +808,9 @@ contract CuratedForkTest is Test {
         Work memory w = _work(RESERVED_WORK);
         assertTrue(w.reserved);
         vm.startPrank(buyer);
-        vm.expectRevert(CuratedVault.InvalidProof.selector);
+        vm.expectRevert(CuratedVaultBase.InvalidProof.selector);
         vault.buy{value: fee}(w.index, w.netlist, w.nIn, w.nOut, 0, w.proof, buyer);
-        vm.expectRevert(CuratedVault.InvalidProof.selector);
+        vm.expectRevert(CuratedVaultBase.InvalidProof.selector);
         vault.buy{value: 1 ether + fee}(w.index, w.netlist, w.nIn, w.nOut, 1 ether, w.proof, buyer);
         vm.stopPrank();
     }
@@ -764,16 +818,16 @@ contract CuratedForkTest is Test {
     /// Only the curator can claim, the work always goes to the fixed treasury, and it is official and marked
     /// reserved. Claiming works before the public sale opens.
     function test_Reserved_CuratorClaimsToTreasury() public {
-        CuratedVault.LaunchParams memory p = _params();
+        LaunchParams memory p = _params();
         p.saleStart = uint64(block.timestamp + 7 days);
         _launchWith(p);
         Work memory w = _work(RESERVED_WORK);
 
         vm.prank(attacker);
-        vm.expectRevert(CuratedVault.OnlyCurator.selector);
+        vm.expectRevert(CuratedVaultBase.OnlyCurator.selector);
         vault.claimReserved{value: fee}(w.index, w.netlist, w.nIn, w.nOut, w.proof);
 
-        uint256 owedBefore = vault.owed(curator);
+        uint256 owedBefore = PAYEE.balance;
         uint256 id = _claim(RESERVED_WORK);
         assertEq(C.ownerOf(id), p.treasury);
         assertTrue(reg.isOfficial(address(C), id));
@@ -781,7 +835,7 @@ contract CuratedForkTest is Test {
         (bool off, uint256 idx) = reg.editionOf(address(C), id);
         assertTrue(off);
         assertEq(idx, RESERVED_WORK);
-        assertEq(vault.owed(curator), owedBefore, "a reserved work earns nothing");
+        assertEq(PAYEE.balance, owedBefore, "a reserved work earns nothing");
 
         ICuratedRegistry.Collection memory col = reg.collectionOf(address(C));
         assertEq(col.treasury, p.treasury);
@@ -789,7 +843,7 @@ contract CuratedForkTest is Test {
 
         // cannot be claimed twice
         vm.prank(curator);
-        vm.expectRevert(CuratedVault.AlreadyTaken.selector);
+        vm.expectRevert(CuratedVaultBase.AlreadyTaken.selector);
         vault.claimReserved{value: fee}(w.index, w.netlist, w.nIn, w.nOut, w.proof);
     }
 
@@ -806,7 +860,7 @@ contract CuratedForkTest is Test {
         Work memory w = _work(i);
         vm.deal(payer, 10 ether);
         vm.prank(payer);
-        vm.expectRevert(abi.encodeWithSelector(CuratedVault.WalletLimitReached.selector, limited));
+        vm.expectRevert(abi.encodeWithSelector(CuratedVaultBase.WalletLimitReached.selector, limited));
         vault.buy{value: w.price + fee}(w.index, w.netlist, w.nIn, w.nOut, w.price, w.proof, to);
     }
 
@@ -835,7 +889,7 @@ contract CuratedForkTest is Test {
     /// Option "limit to 2": the third purchase fails; with a limit each wallet buys for itself only, so nobody can
     /// buy many works for others or push someone else to the limit by "gifting" works.
     function test_Limit_CapsEachWallet() public {
-        CuratedVault.LaunchParams memory p = _params();
+        LaunchParams memory p = _params();
         p.limitPerWallet = true;
         p.maxPerWallet = 2;
         _launchWith(p);
@@ -852,11 +906,11 @@ contract CuratedForkTest is Test {
         Work memory w = _work(2);
         vm.deal(alice, 1 ether);
         vm.prank(alice);
-        vm.expectRevert(CuratedVault.RecipientMustBeBuyer.selector);
+        vm.expectRevert(CuratedVaultBase.RecipientMustBeBuyer.selector);
         vault.buy{value: w.price + fee}(w.index, w.netlist, w.nIn, w.nOut, w.price, w.proof, bob);
         vm.deal(bob, 1 ether);
         vm.prank(bob);
-        vm.expectRevert(CuratedVault.RecipientMustBeBuyer.selector);
+        vm.expectRevert(CuratedVaultBase.RecipientMustBeBuyer.selector);
         vault.buy{value: w.price + fee}(w.index, w.netlist, w.nIn, w.nOut, w.price, w.proof, alice);
         assertEq(_remaining(bob), 2, "a refused purchase counts for nobody");
 
@@ -876,18 +930,18 @@ contract CuratedForkTest is Test {
 
     /// The two settings must agree, and the chosen limit is fixed at launch and readable on chain.
     function test_Limit_ParamsChecked() public {
-        CuratedVault.LaunchParams memory p = _params();
+        LaunchParams memory p = _params();
         p.limitPerWallet = true;
         p.maxPerWallet = 0; // limit switched on without a number
         vm.prank(curator);
-        vm.expectRevert(abi.encodeWithSelector(CuratedVault.BadParams.selector, "maxPerWallet"));
+        vm.expectRevert(abi.encodeWithSelector(CuratedVaultBase.BadParams.selector, bytes32("maxPerWallet")));
         reg.launch{value: launchValue}(p);
 
         p = _params();
         p.limitPerWallet = false;
         p.maxPerWallet = 3; // a number without switching the limit on
         vm.prank(curator);
-        vm.expectRevert(abi.encodeWithSelector(CuratedVault.BadParams.selector, "maxPerWallet"));
+        vm.expectRevert(abi.encodeWithSelector(CuratedVaultBase.BadParams.selector, bytes32("maxPerWallet")));
         reg.launch{value: launchValue}(p);
 
         p = _params();
@@ -985,7 +1039,7 @@ contract CuratedForkTest is Test {
     }
 
     /// presale open now, public sale in one day
-    function _launchPresale() internal returns (CuratedVault.LaunchParams memory p) {
+    function _launchPresale() internal returns (LaunchParams memory p) {
         p = _params();
         p.presaleStart = uint64(block.timestamp);
         p.saleStart = uint64(block.timestamp + 1 days);
@@ -1024,13 +1078,14 @@ contract CuratedForkTest is Test {
         assertEq(bob.tier, 1);
         (uint256 pa,) = _pp(0, 0);
         assertEq(pa, _work(0).price / 2, "OG pays half for work 0");
-        uint256 owedBefore = vault.owed(curator);
+        uint256 owedBefore = PAYEE.balance;
+        uint256 plat0 = vault.PLATFORM().balance;
         vm.expectEmit(true, false, true, true, address(vault));
         emit Purchased(0, 0, alice.wallet, pa);
         uint256 id = _presaleBuy(alice, alice.wallet, 0, alice.quota);
         assertEq(C.ownerOf(id), alice.wallet);
         uint256 cut = (pa * vault.PLATFORM_BPS()) / 10_000;
-        assertEq(vault.owed(curator) - owedBefore, pa - cut, "curator credited with the presale price");
+        assertEq(PAYEE.balance - owedBefore, pa - cut, "the payee is paid the presale price");
         // a free presale price: the buyer pays only the tape-out fee
         (uint256 pb,) = _pp(1, 1);
         assertEq(pb, 0);
@@ -1041,17 +1096,17 @@ contract CuratedForkTest is Test {
         vm.prank(bob.wallet);
         vault.buyPresale{value: fee}(w.index, w.netlist, w.nIn, w.nOut, w.price, w.proof, bob.wallet, bob.quota, 1, bob.proof, 0, pproof);
         assertEq(bal - bob.wallet.balance, fee);
-        assertEq(vault.owed(vault.PLATFORM()), cut, "the platform's share is of the presale price");
+        assertEq(vault.PLATFORM().balance - plat0, cut, "the platform's share is of the presale price");
         // after the presale, buyPresale is closed and buy charges the work-list price
         vm.warp(vault.SALE_START());
         Work memory w2 = _work(2);
         (, bytes32[] memory p2) = _pp(2, 1);
         vm.prank(bob.wallet);
-        vm.expectRevert(CuratedVault.PresaleNotOpen.selector);
+        vm.expectRevert(CuratedVaultBase.PresaleNotOpen.selector);
         vault.buyPresale{value: fee}(w2.index, w2.netlist, w2.nIn, w2.nOut, w2.price, w2.proof, bob.wallet, bob.quota, 1, bob.proof, 0, p2);
         vm.prank(bob.wallet);
         vault.buy{value: w2.price + fee}(w2.index, w2.netlist, w2.nIn, w2.nOut, w2.price, w2.proof, bob.wallet);
-        assertEq(vault.owed(curator) - owedBefore, pa - cut + w2.price - (w2.price * vault.PLATFORM_BPS()) / 10_000);
+        assertEq(PAYEE.balance - owedBefore, pa - cut + w2.price - (w2.price * vault.PLATFORM_BPS()) / 10_000);
     }
 
     /// A price leaf only fits its own work, and the buyer pays exactly the presale price: no more, no less.
@@ -1064,14 +1119,14 @@ contract CuratedForkTest is Test {
         vm.deal(alice.wallet, 10 ether);
         // work 3's free price leaf presented for work 0
         vm.prank(alice.wallet);
-        vm.expectRevert(CuratedVault.InvalidPresalePrice.selector);
+        vm.expectRevert(CuratedVaultBase.InvalidPresalePrice.selector);
         vault.buyPresale{value: fee}(
             w0.index, w0.netlist, w0.nIn, w0.nOut, w0.price, w0.proof, alice.wallet, alice.quota, 0, alice.proof, p3, proof3
         );
         // paying the public price when the presale price is lower is refused, not kept
         (uint256 pa, bytes32[] memory pproof) = _pp(0, 0);
         vm.prank(alice.wallet);
-        vm.expectRevert(abi.encodeWithSelector(CuratedVault.WrongPayment.selector, pa + fee));
+        vm.expectRevert(abi.encodeWithSelector(CuratedVaultBase.WrongPayment.selector, pa + fee));
         vault.buyPresale{value: w0.price + fee}(
             w0.index, w0.netlist, w0.nIn, w0.nOut, w0.price, w0.proof, alice.wallet, alice.quota, 0, alice.proof, pa, pproof
         );
@@ -1080,7 +1135,7 @@ contract CuratedForkTest is Test {
     /// In a token collection a free presale price needs no approval and moves no tokens.
     function test_PresalePrice_FreeInTokenCollection() public {
         MockToken tok = new MockToken();
-        CuratedVault.LaunchParams memory p = _params();
+        LaunchParams memory p = _params();
         p.paymentToken = address(tok);
         p.presaleStart = uint64(block.timestamp);
         p.saleStart = uint64(block.timestamp + 1 days);
@@ -1096,7 +1151,7 @@ contract CuratedForkTest is Test {
         );
         assertEq(C.ownerOf(id), bob.wallet);
         assertEq(tok.balanceOf(address(vault)), 0);
-        assertEq(vault.owed(curator), 0);
+        assertEq(tok.balanceOf(PAYEE), 0);
     }
 
     /// A wallet cannot use another tier's price or another tier, nor a price that is not in the list.
@@ -1108,20 +1163,20 @@ contract CuratedForkTest is Test {
         vm.deal(alice.wallet, 10 ether);
         // alice (tier 0) presents tier 1's price: the price leaf is for tier 1, so it does not verify for tier 0
         vm.prank(alice.wallet);
-        vm.expectRevert(CuratedVault.InvalidPresalePrice.selector);
+        vm.expectRevert(CuratedVaultBase.InvalidPresalePrice.selector);
         vault.buyPresale{value: friends + fee}(
             w.index, w.netlist, w.nIn, w.nOut, w.price, w.proof, alice.wallet, alice.quota, 0, alice.proof, friends, friendsProof
         );
         // alice claims tier 1: her allowlist leaf says tier 0
         vm.prank(alice.wallet);
-        vm.expectRevert(CuratedVault.NotAllowlisted.selector);
+        vm.expectRevert(CuratedVaultBase.NotAllowlisted.selector);
         vault.buyPresale{value: friends + fee}(
             w.index, w.netlist, w.nIn, w.nOut, w.price, w.proof, alice.wallet, alice.quota, 1, alice.proof, friends, friendsProof
         );
         // an unlisted lower price
         (uint256 pa, bytes32[] memory pproof) = _pp(0, 0);
         vm.prank(alice.wallet);
-        vm.expectRevert(CuratedVault.InvalidPresalePrice.selector);
+        vm.expectRevert(CuratedVaultBase.InvalidPresalePrice.selector);
         vault.buyPresale{value: pa - 1 + fee}(
             w.index, w.netlist, w.nIn, w.nOut, w.price, w.proof, alice.wallet, alice.quota, 0, alice.proof, pa - 1, pproof
         );
@@ -1130,7 +1185,7 @@ contract CuratedForkTest is Test {
 
     /// Even a listed presale price above the public price is refused on chain.
     function test_PresalePrice_NeverAbovePublicPrice() public {
-        CuratedVault.LaunchParams memory p = _params();
+        LaunchParams memory p = _params();
         p.presaleStart = uint64(block.timestamp);
         p.saleStart = uint64(block.timestamp + 1 days);
         Work memory w = _work(0);
@@ -1143,7 +1198,7 @@ contract CuratedForkTest is Test {
         Allow memory alice = _allow(0);
         vm.deal(alice.wallet, 10 ether);
         vm.prank(alice.wallet);
-        vm.expectRevert(abi.encodeWithSelector(CuratedVault.PresaleAbovePrice.selector, high, w.price));
+        vm.expectRevert(abi.encodeWithSelector(CuratedVaultBase.PresaleAbovePrice.selector, high, w.price));
         vault.buyPresale{value: high + fee}(
             w.index, w.netlist, w.nIn, w.nOut, w.price, w.proof, alice.wallet, alice.quota, 0, alice.proof, high,
             new bytes32[](0)
@@ -1152,7 +1207,7 @@ contract CuratedForkTest is Test {
 
     /// Without a presale price list the presale sells at the work-list price; a price list needs an allowlist.
     function test_PresalePrice_NoListMeansListPrice() public {
-        CuratedVault.LaunchParams memory p = _params();
+        LaunchParams memory p = _params();
         p.presaleStart = uint64(block.timestamp);
         p.saleStart = uint64(block.timestamp + 1 days);
         p.presalePriceRoot = bytes32(0);
@@ -1162,7 +1217,7 @@ contract CuratedForkTest is Test {
         Work memory w = _work(0);
         vm.deal(alice.wallet, 10 ether);
         vm.prank(alice.wallet);
-        vm.expectRevert(CuratedVault.InvalidPresalePrice.selector);
+        vm.expectRevert(CuratedVaultBase.InvalidPresalePrice.selector);
         vault.buyPresale{value: w.price / 2 + fee}(
             w.index, w.netlist, w.nIn, w.nOut, w.price, w.proof, alice.wallet, alice.quota, 0, alice.proof, w.price / 2,
             new bytes32[](0)
@@ -1174,7 +1229,7 @@ contract CuratedForkTest is Test {
         p.allowRoot = bytes32(0);
         p.presaleStart = 0;
         vm.prank(curator);
-        vm.expectRevert(abi.encodeWithSelector(CuratedVault.BadParams.selector, "presalePriceRoot"));
+        vm.expectRevert(abi.encodeWithSelector(CuratedVaultBase.BadParams.selector, bytes32("presalePriceRoot")));
         reg.launch{value: launchValue}(p);
     }
 
@@ -1189,7 +1244,7 @@ contract CuratedForkTest is Test {
         assertTrue(reg.isOfficial(address(C), id));
         _presaleBuy(alice, alice.wallet, 1, alice.quota);
         assertEq(vault.presaleBought(alice.wallet), 2);
-        _presaleExpect(alice, alice.wallet, 2, alice.quota, abi.encodeWithSelector(CuratedVault.PresaleQuotaUsed.selector));
+        _presaleExpect(alice, alice.wallet, 2, alice.quota, abi.encodeWithSelector(CuratedVaultBase.PresaleQuotaUsed.selector));
     }
 
     /// Strangers cannot use the presale, nobody can claim a bigger quota, and the public sale is still closed.
@@ -1197,35 +1252,35 @@ contract CuratedForkTest is Test {
         _launchPresale();
         Allow memory alice = _allow(0);
         // a stranger presents alice's proof
-        _presaleExpect(alice, buyer, 0, alice.quota, abi.encodeWithSelector(CuratedVault.NotAllowlisted.selector));
+        _presaleExpect(alice, buyer, 0, alice.quota, abi.encodeWithSelector(CuratedVaultBase.NotAllowlisted.selector));
         // alice claims a bigger quota than the list gives her
-        _presaleExpect(alice, alice.wallet, 0, 5, abi.encodeWithSelector(CuratedVault.NotAllowlisted.selector));
+        _presaleExpect(alice, alice.wallet, 0, 5, abi.encodeWithSelector(CuratedVaultBase.NotAllowlisted.selector));
         // the public sale has not opened
         Work memory w = _work(0);
         vm.prank(buyer);
-        vm.expectRevert(CuratedVault.SaleNotStarted.selector);
+        vm.expectRevert(CuratedVaultBase.SaleNotStarted.selector);
         vault.buy{value: w.price + fee}(w.index, w.netlist, w.nIn, w.nOut, w.price, w.proof, buyer);
     }
 
     /// The presale runs from presaleStart until the public sale opens; then everyone buys with buy().
     function test_Presale_Window() public {
-        CuratedVault.LaunchParams memory p = _params();
+        LaunchParams memory p = _params();
         p.presaleStart = uint64(block.timestamp + 1 hours);
         p.saleStart = uint64(block.timestamp + 1 days);
         _launchWith(p);
         Allow memory bob = _allow(1);
-        _presaleExpect(bob, bob.wallet, 0, bob.quota, abi.encodeWithSelector(CuratedVault.PresaleNotOpen.selector));
+        _presaleExpect(bob, bob.wallet, 0, bob.quota, abi.encodeWithSelector(CuratedVaultBase.PresaleNotOpen.selector));
         vm.warp(p.presaleStart);
         _presaleBuy(bob, bob.wallet, 0, bob.quota);
         vm.warp(p.saleStart);
-        _presaleExpect(bob, bob.wallet, 1, bob.quota, abi.encodeWithSelector(CuratedVault.PresaleNotOpen.selector));
+        _presaleExpect(bob, bob.wallet, 1, bob.quota, abi.encodeWithSelector(CuratedVaultBase.PresaleNotOpen.selector));
         _buyAs(buyer, 1, buyer); // public sale for everyone
         _buyAs(bob.wallet, 2, bob.wallet); // allowlisted wallets too, beyond their presale quota
     }
 
     /// The per-wallet limit applies on top of the presale quota.
     function test_Presale_RespectsWalletLimit() public {
-        CuratedVault.LaunchParams memory p = _params();
+        LaunchParams memory p = _params();
         p.presaleStart = uint64(block.timestamp);
         p.saleStart = uint64(block.timestamp + 1 days);
         p.limitPerWallet = true;
@@ -1235,30 +1290,30 @@ contract CuratedForkTest is Test {
         _presaleBuy(alice, alice.wallet, 0, alice.quota);
         _presaleExpect(
             alice, alice.wallet, 1, alice.quota,
-            abi.encodeWithSelector(CuratedVault.WalletLimitReached.selector, alice.wallet)
+            abi.encodeWithSelector(CuratedVaultBase.WalletLimitReached.selector, alice.wallet)
         );
     }
 
     /// Without a presale, buyPresale is closed; presale settings must be consistent.
     function test_Presale_ParamsChecked() public {
-        CuratedVault.LaunchParams memory p = _params();
+        LaunchParams memory p = _params();
         p.allowRoot = bytes32(0);
         p.presalePriceRoot = bytes32(0);
         p.presaleStart = 0;
         _launchWith(p);
         Allow memory alice = _allow(0);
-        _presaleExpect(alice, alice.wallet, 0, alice.quota, abi.encodeWithSelector(CuratedVault.NoPresale.selector));
+        _presaleExpect(alice, alice.wallet, 0, alice.quota, abi.encodeWithSelector(CuratedVaultBase.NoPresale.selector));
 
         p = _params();
         p.presaleStart = p.saleStart; // the presale must start before the public sale
         vm.prank(curator);
-        vm.expectRevert(abi.encodeWithSelector(CuratedVault.BadParams.selector, "presale"));
+        vm.expectRevert(abi.encodeWithSelector(CuratedVaultBase.BadParams.selector, bytes32("presale")));
         reg.launch{value: launchValue}(p);
 
         p = _params();
         p.presaleStart = 0; // an allowlist without a presale time
         vm.prank(curator);
-        vm.expectRevert(abi.encodeWithSelector(CuratedVault.BadParams.selector, "presale"));
+        vm.expectRevert(abi.encodeWithSelector(CuratedVaultBase.BadParams.selector, bytes32("presale")));
         reg.launch{value: launchValue}(p);
 
         p = _params();
@@ -1266,7 +1321,7 @@ contract CuratedForkTest is Test {
         p.presalePriceRoot = bytes32(0);
         p.presaleStart = 1; // a presale time without an allowlist
         vm.prank(curator);
-        vm.expectRevert(abi.encodeWithSelector(CuratedVault.BadParams.selector, "presale"));
+        vm.expectRevert(abi.encodeWithSelector(CuratedVaultBase.BadParams.selector, bytes32("presale")));
         reg.launch{value: launchValue}(p);
     }
 
@@ -1275,7 +1330,7 @@ contract CuratedForkTest is Test {
     /// Official works report the declared royalty; REF wrappers and other foreign circuits report none.
     function test_Royalty_OfficialOnly() public {
         _launch();
-        CuratedVault.LaunchParams memory p = _params();
+        LaunchParams memory p = _params();
         (address r0, uint16 b0) = reg.royaltyOf(address(C));
         assertEq(r0, p.royaltyReceiver);
         assertEq(b0, 300);
@@ -1296,7 +1351,7 @@ contract CuratedForkTest is Test {
 
     /// A collection may declare no royalty at all.
     function test_Royalty_None() public {
-        CuratedVault.LaunchParams memory p = _params();
+        LaunchParams memory p = _params();
         p.royaltyReceiver = address(0);
         p.royaltyBps = 0;
         _launchWith(p);
@@ -1341,7 +1396,7 @@ contract CuratedForkTest is Test {
 
     /// Launch refuses a rate above 5 % or a receiver without a rate (and the reverse); exactly 5 % is accepted.
     function test_Royalty_ParamsChecked() public {
-        CuratedVault.LaunchParams memory p = _params();
+        LaunchParams memory p = _params();
         p.royaltyBps = 501;
         vm.prank(curator);
         vm.expectRevert(CuratedRegistry.BadRoyalty.selector);
@@ -1393,41 +1448,41 @@ contract CuratedForkTest is Test {
         Work memory w = _work(1);
         assertFalse(w.reserved);
         vm.prank(curator);
-        vm.expectRevert(CuratedVault.InvalidProof.selector);
+        vm.expectRevert(CuratedVaultBase.InvalidProof.selector);
         vault.claimReserved{value: fee}(w.index, w.netlist, w.nIn, w.nOut, w.proof);
     }
 
     /// The reserved count declared at launch caps claims: here the list marks a reserved work but the launch declares
     /// none, so the work cannot be claimed. (A list hiding extra reserved leaves is caught off chain by checkroot.)
     function test_Reserved_DeclaredCountIsACap() public {
-        CuratedVault.LaunchParams memory p = _params();
+        LaunchParams memory p = _params();
         p.reservedCount = 0; // declares no reserved works although the list marks two
         _launchWith(p);
         Work memory w = _work(RESERVED_WORK);
         vm.prank(curator);
-        vm.expectRevert(CuratedVault.ReservedQuotaUsed.selector);
+        vm.expectRevert(CuratedVaultBase.ReservedQuotaUsed.selector);
         vault.claimReserved{value: fee}(w.index, w.netlist, w.nIn, w.nOut, w.proof);
         assertEq(reg.collectionOf(address(C)).reserved, 0);
     }
 
     /// Reserved works need a treasury, which can be neither the registry nor the vault.
     function test_Reserved_Params() public {
-        CuratedVault.LaunchParams memory p = _params();
+        LaunchParams memory p = _params();
         p.treasury = address(0);
         vm.prank(curator);
-        vm.expectRevert(abi.encodeWithSelector(CuratedVault.BadParams.selector, "treasury"));
+        vm.expectRevert(abi.encodeWithSelector(CuratedVaultBase.BadParams.selector, bytes32("treasury")));
         reg.launch{value: launchValue}(p);
 
         p = _params();
         p.treasury = REG; // the registry (or the vault itself) can never receive reserved works
         vm.prank(curator);
-        vm.expectRevert(abi.encodeWithSelector(CuratedVault.BadParams.selector, "treasury"));
+        vm.expectRevert(abi.encodeWithSelector(CuratedVaultBase.BadParams.selector, bytes32("treasury")));
         reg.launch{value: launchValue}(p);
 
         p = _params();
         p.reservedCount = p.count + 1;
         vm.prank(curator);
-        vm.expectRevert(abi.encodeWithSelector(CuratedVault.BadParams.selector, "reservedCount"));
+        vm.expectRevert(abi.encodeWithSelector(CuratedVaultBase.BadParams.selector, bytes32("reservedCount")));
         reg.launch{value: launchValue}(p);
     }
 
@@ -1438,17 +1493,17 @@ contract CuratedForkTest is Test {
         uint64 end = vault.SALE_END();
         vm.warp(end);
         assertFalse(vault.finalizable());
-        vm.expectRevert(CuratedVault.NotFinalizable.selector);
+        vm.expectRevert(CuratedVaultBase.NotFinalizable.selector);
         vault.finalize();
 
         uint256 id = _claim(RESERVED_WORK); // after the sale has ended
         assertEq(C.ownerOf(id), _params().treasury);
         assertTrue(reg.isOfficial(address(C), id));
-        vm.expectRevert(CuratedVault.NotFinalizable.selector);
+        vm.expectRevert(CuratedVaultBase.NotFinalizable.selector);
         vault.finalize(); // one reserved work is still unclaimed
 
         vm.warp(uint256(end) + vault.RESERVE_GRACE() - 1);
-        vm.expectRevert(CuratedVault.NotFinalizable.selector);
+        vm.expectRevert(CuratedVaultBase.NotFinalizable.selector);
         vault.finalize();
         vm.warp(uint256(end) + vault.RESERVE_GRACE());
         vm.prank(attacker); // anyone may finalize once the grace period is over
@@ -1456,7 +1511,7 @@ contract CuratedForkTest is Test {
 
         Work memory w = _work(RESERVED_WORK2);
         vm.prank(curator);
-        vm.expectRevert(CuratedVault.AlreadyFinalized.selector);
+        vm.expectRevert(CuratedVaultBase.AlreadyFinalized.selector);
         vault.claimReserved{value: fee}(w.index, w.netlist, w.nIn, w.nOut, w.proof);
     }
 
@@ -1487,10 +1542,10 @@ contract CuratedForkTest is Test {
         CuratedVault.ReservedWork[] memory b = _batch(both);
 
         vm.prank(attacker);
-        vm.expectRevert(CuratedVault.OnlyCurator.selector);
+        vm.expectRevert(CuratedVaultBase.OnlyCurator.selector);
         vault.claimReservedBatch{value: 2 * fee}(b);
         vm.prank(curator);
-        vm.expectRevert(abi.encodeWithSelector(CuratedVault.WrongPayment.selector, 2 * fee));
+        vm.expectRevert(abi.encodeWithSelector(CuratedVaultBase.WrongPayment.selector, 2 * fee));
         vault.claimReservedBatch{value: fee}(b);
 
         // a public work in the batch makes the whole batch fail
@@ -1498,7 +1553,7 @@ contract CuratedForkTest is Test {
         mixed[0] = RESERVED_WORK;
         mixed[1] = 1;
         vm.prank(curator);
-        vm.expectRevert(CuratedVault.InvalidProof.selector);
+        vm.expectRevert(CuratedVaultBase.InvalidProof.selector);
         vault.claimReservedBatch{value: 2 * fee}(_batch(mixed));
         assertEq(vault.reservedClaimed(), 0);
 
@@ -1518,7 +1573,7 @@ contract CuratedForkTest is Test {
         }
         assertEq(vault.reservedClaimed(), 2);
         vm.prank(curator);
-        vm.expectRevert(CuratedVault.AlreadyTaken.selector);
+        vm.expectRevert(CuratedVaultBase.AlreadyTaken.selector);
         vault.claimReservedBatch{value: fee}(_batch(_one(RESERVED_WORK)));
     }
 
@@ -1532,16 +1587,16 @@ contract CuratedForkTest is Test {
     /// The registry records a commitment to the name, symbol, story and every title; the tool computes the same
     /// value (including a non-ASCII title), and the story the processor is created with is part of it.
     function test_Metadata_Committed() public {
-        CuratedVault.LaunchParams memory p = _params();
+        LaunchParams memory p = _params();
         _launch();
         bytes32 m = reg.collectionOf(address(C)).metadata;
         assertEq(m, vm.parseJsonBytes32(manifest, ".launch.metadataHash"));
-        assertEq(m, vault.metadataOf(p.name, p.symbol, p.story, p.titlesHash));
-        assertTrue(vault.metadataOf(p.name, p.symbol, "another story", p.titlesHash) != m);
+        assertEq(m, reg.metadataOf(p.name, p.symbol, p.story, p.titlesHash));
+        assertTrue(reg.metadataOf(p.name, p.symbol, "another story", p.titlesHash) != m);
 
         p.titlesHash = bytes32(0);
         vm.prank(curator);
-        vm.expectRevert(abi.encodeWithSelector(CuratedVault.BadParams.selector, "titlesHash"));
+        vm.expectRevert(abi.encodeWithSelector(CuratedVaultBase.BadParams.selector, bytes32("titlesHash")));
         reg.launch{value: launchValue}(p);
     }
 
@@ -1551,16 +1606,16 @@ contract CuratedForkTest is Test {
         _launch();
         Work memory w = _work(0);
         vm.prank(attacker);
-        vm.expectRevert(CuratedVault.OnlyCurator.selector);
+        vm.expectRevert(CuratedVaultBase.OnlyCurator.selector);
         vault.setPaused(true);
 
         vm.prank(curator);
         vm.expectEmit(address(vault));
-        emit CuratedVault.SalePaused(true);
+        emit CuratedVaultBase.SalePaused(true);
         vault.setPaused(true);
         assertTrue(vault.paused());
         vm.prank(buyer);
-        vm.expectRevert(CuratedVault.SaleIsPaused.selector);
+        vm.expectRevert(CuratedVaultBase.SaleIsPaused.selector);
         vault.buy{value: w.price + fee}(w.index, w.netlist, w.nIn, w.nOut, w.price, w.proof, buyer);
 
         // reserved claims are not affected by a pause
@@ -1578,7 +1633,7 @@ contract CuratedForkTest is Test {
         vm.prank(curator);
         vault.setPaused(true);
         Allow memory a = _allow(0);
-        _presaleExpect(a, a.wallet, 0, a.quota, abi.encodeWithSelector(CuratedVault.SaleIsPaused.selector));
+        _presaleExpect(a, a.wallet, 0, a.quota, abi.encodeWithSelector(CuratedVaultBase.SaleIsPaused.selector));
         vm.prank(curator);
         vault.setPaused(false);
         uint256 id = _presaleBuy(a, a.wallet, 0, a.quota);
@@ -1589,16 +1644,16 @@ contract CuratedForkTest is Test {
         _launch();
         uint64 end = vault.SALE_END();
         vm.prank(attacker);
-        vm.expectRevert(CuratedVault.OnlyCurator.selector);
+        vm.expectRevert(CuratedVaultBase.OnlyCurator.selector);
         vault.extendSale(end + 1 days);
 
         vm.startPrank(curator);
-        vm.expectRevert(CuratedVault.CannotExtend.selector);
+        vm.expectRevert(CuratedVaultBase.CannotExtend.selector);
         vault.extendSale(end); // not later
-        vm.expectRevert(CuratedVault.CannotExtend.selector);
+        vm.expectRevert(CuratedVaultBase.CannotExtend.selector);
         vault.extendSale(end - 1); // earlier
         vm.expectEmit(address(vault));
-        emit CuratedVault.SaleEndExtended(end, end + 30 days);
+        emit CuratedVaultBase.SaleEndExtended(end, end + 30 days);
         vault.extendSale(end + 30 days);
         vm.stopPrank();
         assertEq(vault.SALE_END(), end + 30 days);
@@ -1613,11 +1668,11 @@ contract CuratedForkTest is Test {
         // once the (new) end has passed, the sale cannot be reopened
         vm.warp(uint256(end) + 30 days);
         vm.prank(curator);
-        vm.expectRevert(CuratedVault.CannotExtend.selector);
+        vm.expectRevert(CuratedVaultBase.CannotExtend.selector);
         vault.extendSale(end + 60 days);
         Work memory w = _work(1);
         vm.prank(buyer);
-        vm.expectRevert(CuratedVault.SaleEnded.selector);
+        vm.expectRevert(CuratedVaultBase.SaleEnded.selector);
         vault.buy{value: w.price + fee}(w.index, w.netlist, w.nIn, w.nOut, w.price, w.proof, buyer);
     }
 
@@ -1626,9 +1681,9 @@ contract CuratedForkTest is Test {
         vm.warp(uint256(vault.SALE_END()) + vault.RESERVE_GRACE());
         vault.finalize();
         vm.startPrank(curator);
-        vm.expectRevert(CuratedVault.AlreadyFinalized.selector);
+        vm.expectRevert(CuratedVaultBase.AlreadyFinalized.selector);
         vault.setPaused(true);
-        vm.expectRevert(CuratedVault.CannotExtend.selector);
+        vm.expectRevert(CuratedVaultBase.CannotExtend.selector);
         vault.extendSale(type(uint64).max);
         vm.stopPrank();
     }
@@ -1678,7 +1733,7 @@ contract CuratedForkTest is Test {
     }
 
     function test_Metadata_None() public {
-        CuratedVault.LaunchParams memory p = _params();
+        LaunchParams memory p = _params();
         p.metadataURI = "";
         _launchWith(p);
         uint256 a = _buy(2, buyer);
@@ -1705,7 +1760,7 @@ contract CuratedForkTest is Test {
         ];
         for (uint256 i = 0; i < bad.length; i++) {
             assertFalse(reg.isContentAddressed(bytes(bad[i])), bad[i]);
-            CuratedVault.LaunchParams memory p = _params();
+            LaunchParams memory p = _params();
             p.metadataURI = bad[i];
             vm.prank(curator);
             vm.expectRevert(CuratedRegistry.BadMetadataURI.selector);
@@ -1725,7 +1780,7 @@ contract CuratedForkTest is Test {
     // ------------------------------------------------------------------ payment token (ERC-20 prices)
 
     function _launchToken(address token) internal {
-        CuratedVault.LaunchParams memory p = _params();
+        LaunchParams memory p = _params();
         p.paymentToken = token;
         _launchWith(p);
     }
@@ -1752,7 +1807,7 @@ contract CuratedForkTest is Test {
         vm.prank(buyer);
         tok.approve(address(vault), w.price);
         vm.prank(buyer);
-        vm.expectRevert(abi.encodeWithSelector(CuratedVault.WrongPayment.selector, fee));
+        vm.expectRevert(abi.encodeWithSelector(CuratedVaultBase.WrongPayment.selector, fee));
         vault.buy{value: w.price + fee}(w.index, w.netlist, w.nIn, w.nOut, w.price, w.proof, buyer);
         // without an allowance the purchase reverts as a whole
         address poor = _eoa("p05-token-noallowance");
@@ -1766,16 +1821,13 @@ contract CuratedForkTest is Test {
         uint256 id = vault.buy{value: fee}(w.index, w.netlist, w.nIn, w.nOut, w.price, w.proof, buyer);
         assertEq(buyer.balance, nativeBefore - fee, "only the tape-out fee in native coin");
         assertEq(tok.balanceOf(buyer), 0);
-        assertEq(tok.balanceOf(address(vault)), w.price);
         assertTrue(reg.isOfficial(address(C), id));
         assertEq(C.ownerOf(id), buyer);
 
+        // paid out in the token at once
         uint256 cut = (w.price * vault.PLATFORM_BPS()) / 10_000;
-        assertEq(vault.owed(vault.PLATFORM()), cut);
-        assertEq(vault.owed(curator), w.price - cut);
-        vault.withdraw(curator);
-        vault.withdraw(vault.PLATFORM());
-        assertEq(tok.balanceOf(curator), w.price - cut);
+        assertEq(vault.owed(vault.PLATFORM()) + vault.owed(PAYEE), 0);
+        assertEq(tok.balanceOf(PAYEE), w.price - cut);
         assertEq(tok.balanceOf(vault.PLATFORM()), cut);
         assertEq(tok.balanceOf(address(vault)), 0);
         assertEq(address(vault).balance, 0, "no native coin left behind");
@@ -1784,7 +1836,7 @@ contract CuratedForkTest is Test {
     /// Presale and per-work prices work the same way in the token; reserved claims still cost only the native fee.
     function test_Token_PresaleAndReservedUnchanged() public {
         MockToken tok = new MockToken();
-        CuratedVault.LaunchParams memory p = _params();
+        LaunchParams memory p = _params();
         p.paymentToken = address(tok);
         p.presaleStart = uint64(block.timestamp);
         p.saleStart = uint64(block.timestamp + 1 days);
@@ -1803,7 +1855,8 @@ contract CuratedForkTest is Test {
             pp, pproof
         );
         assertEq(C.ownerOf(id), alice.wallet);
-        assertEq(tok.balanceOf(address(vault)), pp, "the presale price, in the token");
+        assertEq(tok.balanceOf(address(vault)), 0);
+        assertEq(tok.balanceOf(PAYEE), pp - (pp * vault.PLATFORM_BPS()) / 10_000, "the presale price, in the token");
 
         Work memory r = _work(RESERVED_WORK);
         vm.prank(curator);
@@ -1820,7 +1873,7 @@ contract CuratedForkTest is Test {
         vm.prank(buyer);
         tok.approve(address(vault), w.price);
         vm.prank(buyer);
-        vm.expectRevert(abi.encodeWithSelector(CuratedVault.TokenAmountMismatch.selector, w.price, w.price - w.price / 100));
+        vm.expectRevert(abi.encodeWithSelector(CuratedVaultBase.TokenAmountMismatch.selector, w.price, w.price - w.price / 100));
         vault.buy{value: fee}(w.index, w.netlist, w.nIn, w.nOut, w.price, w.proof, buyer);
         assertFalse(vault.taken(w.index));
         assertEq(tok.balanceOf(buyer), w.price);
@@ -1828,10 +1881,10 @@ contract CuratedForkTest is Test {
 
     /// A free work in a token collection needs no allowance; an address without code is refused as payment token.
     function test_Token_FreeWorkAndParams() public {
-        CuratedVault.LaunchParams memory p = _params();
+        LaunchParams memory p = _params();
         p.paymentToken = _eoa("p05-not-a-token");
         vm.prank(curator);
-        vm.expectRevert(abi.encodeWithSelector(CuratedVault.BadParams.selector, "paymentToken"));
+        vm.expectRevert(abi.encodeWithSelector(CuratedVaultBase.BadParams.selector, bytes32("paymentToken")));
         reg.launch{value: launchValue}(p);
 
         MockToken tok = new MockToken();
@@ -1843,8 +1896,8 @@ contract CuratedForkTest is Test {
         assertTrue(reg.isOfficial(address(C), id));
     }
 
-    /// A token that returns nothing (USDT style) works; a payee withdraws its share elsewhere with withdrawTo.
-    function test_Token_NoReturnTokenAndWithdrawTo() public {
+    /// A token that returns nothing (USDT style) works, also for direct payouts.
+    function test_Token_NoReturnToken() public {
         NoReturnToken tok = new NoReturnToken();
         _launchToken(address(tok));
         Work memory w = _work(0);
@@ -1853,18 +1906,38 @@ contract CuratedForkTest is Test {
         tok.approve(address(vault), w.price);
         vm.prank(buyer);
         vault.buy{value: fee}(w.index, w.netlist, w.nIn, w.nOut, w.price, w.proof, buyer);
-        address cold = _eoa("p05-token-cold");
-        uint256 share = vault.owed(curator);
-        vm.prank(curator);
-        vault.withdrawTo(cold);
-        assertEq(tok.balanceOf(cold), share);
-        assertEq(vault.owed(curator), 0);
-        // the registry and the deployer are refused as payment tokens
-        CuratedVault.LaunchParams memory p = _params();
+        uint256 cut = (w.price * vault.PLATFORM_BPS()) / 10_000;
+        assertEq(tok.balanceOf(PAYEE), w.price - cut);
+        assertEq(tok.balanceOf(vault.PLATFORM()), cut);
+        assertEq(vault.owed(PAYEE), 0);
+        // the registry is refused as payment token
+        LaunchParams memory p = _params();
         p.paymentToken = address(reg);
         vm.prank(curator);
-        vm.expectRevert(abi.encodeWithSelector(CuratedVault.BadParams.selector, "paymentToken"));
+        vm.expectRevert(abi.encodeWithSelector(CuratedVaultBase.BadParams.selector, bytes32("paymentToken")));
         reg.launch{value: launchValue}(p);
+    }
+
+    /// A token payout that fails (a blocked payee) is kept in `owed` and the purchase still goes through.
+    function test_Token_FailedPayoutIsKept() public {
+        BlockToken tok = new BlockToken();
+        _launchToken(address(tok));
+        tok.block_(PAYEE);
+        Work memory w = _work(0);
+        tok.mint(buyer, w.price);
+        vm.prank(buyer);
+        tok.approve(address(vault), w.price);
+        vm.prank(buyer);
+        uint256 id = vault.buy{value: fee}(w.index, w.netlist, w.nIn, w.nOut, w.price, w.proof, buyer);
+        assertEq(C.ownerOf(id), buyer);
+        uint256 cut = (w.price * vault.PLATFORM_BPS()) / 10_000;
+        assertEq(vault.owed(PAYEE), w.price - cut);
+        assertEq(tok.balanceOf(address(vault)), w.price - cut);
+        address cold = _eoa("p05-token-cold");
+        vm.prank(PAYEE);
+        vault.withdrawTo(cold);
+        assertEq(tok.balanceOf(cold), w.price - cut);
+        assertEq(vault.owed(PAYEE), 0);
     }
 
     /// A token that calls back into the vault during a purchase or a withdrawal cannot get in.
@@ -1883,20 +1956,41 @@ contract CuratedForkTest is Test {
         vault.buy{value: fee}(w.index, w.netlist, w.nIn, w.nOut, w.price, w.proof, buyer);
         assertFalse(tok.reentered(), "buy re-entered");
         assertFalse(vault.taken(w1.index));
-        tok.arm(address(vault), abi.encodeCall(CuratedVault.withdraw, (curator)));
-        vault.withdraw(vault.PLATFORM());
+        // the payout transfers inside the purchase cannot get in either
+        tok.arm(address(vault), abi.encodeCall(CuratedVaultBase.withdraw, (PAYEE)));
+        Work memory w2 = _work(2);
+        tok.mint(buyer, w2.price);
+        vm.prank(buyer);
+        tok.approve(address(vault), w2.price);
+        vm.prank(buyer);
+        vault.buy{value: fee}(w2.index, w2.netlist, w2.nIn, w2.nOut, w2.price, w2.proof, buyer);
         assertFalse(tok.reentered(), "withdraw re-entered");
-        assertGt(vault.owed(curator), 0);
     }
 
-    /// The registry deploys vaults only through its own deployer, which nobody else can call.
-    function test_Deployer_OnlyRegistry() public {
-        assertEq(reg.DEPLOYER().REGISTRY(), address(reg));
-        CuratedVault.LaunchParams memory p = _params();
-        CuratedVaultDeployer d = reg.DEPLOYER();
-        vm.prank(attacker);
-        vm.expectRevert(CuratedVaultDeployer.OnlyRegistry.selector);
-        d.deploy(p);
+    /// Vaults are clones of three fixed implementations; nobody can initialise an implementation, a launched vault
+    /// again, or a clone of their own into this registry.
+    function test_Clones_FixedImplementations() public {
+        assertEq(reg.INSTANT_IMPL(), IMPL0);
+        assertEq(reg.REVEAL_IMPL(), IMPL1);
+        assertEq(reg.BOX_IMPL(), IMPL2);
+        LaunchParams memory p = _params();
+        address[3] memory impls = [IMPL0, IMPL1, IMPL2];
+        for (uint256 i; i < 3; i++) {
+            vm.prank(attacker);
+            vm.expectRevert(CuratedVaultBase.AlreadyInitialized.selector);
+            CuratedVault(payable(impls[i])).initialize(p, attacker);
+        }
+        _launch();
+        // the vault is a minimal proxy to the instant implementation
+        assertEq(address(vault).code, abi.encodePacked(hex"363d3d373d3d3d363d73", IMPL0, hex"5af43d82803e903d91602b57fd5bf3"));
+        vm.prank(address(reg));
+        vm.expectRevert(CuratedVaultBase.AlreadyInitialized.selector);
+        vault.initialize(p, attacker);
+        // a clone made by someone else binds to their own "registry", never to this one
+        p.saleMode = 3;
+        vm.prank(curator);
+        vm.expectRevert(CuratedRegistry.BadSaleMode.selector);
+        reg.launch{value: launchValue}(p);
     }
 
     /// On BNB Smart Chain, BEM itself works as a payment token (no transfer tax).
@@ -1912,9 +2006,33 @@ contract CuratedForkTest is Test {
         vm.prank(buyer);
         uint256 id = vault.buy{value: fee}(w.index, w.netlist, w.nIn, w.nOut, w.price, w.proof, buyer);
         assertTrue(reg.isOfficial(address(C), id));
-        assertEq(IERC20Meta(bem).balanceOf(address(vault)), w.price);
-        vault.withdraw(curator);
-        assertEq(IERC20Meta(bem).balanceOf(curator), w.price - (w.price * vault.PLATFORM_BPS()) / 10_000);
+        assertEq(IERC20Meta(bem).balanceOf(address(vault)), 0);
+        assertEq(IERC20Meta(bem).balanceOf(PAYEE), w.price - (w.price * vault.PLATFORM_BPS()) / 10_000);
+    }
+}
+
+/// A payee contract that refuses native coin; it can send what it is owed elsewhere.
+contract RejectPayee {
+    function pull(CuratedVault v, address to) external {
+        v.withdrawTo(to);
+    }
+
+    receive() external payable {
+        revert("no");
+    }
+}
+
+/// A token that refuses transfers to blocked addresses (like USDC's blacklist).
+contract BlockToken is MockToken {
+    mapping(address => bool) public blocked;
+
+    function block_(address a) external {
+        blocked[a] = true;
+    }
+
+    function _move(address from, address to, uint256 amount) internal override {
+        require(!blocked[to], "blocked");
+        super._move(from, to, amount);
     }
 }
 

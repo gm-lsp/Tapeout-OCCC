@@ -6,7 +6,7 @@
 const E = window.ethers;
 const $ = (id) => document.getElementById(id);
 const REG_ABI = [
-  "function collectionOf(address) view returns (tuple(address vault,address curator,address transistors,address treasury,bytes32 root,uint32 count,uint32 reserved,uint32 certified,bytes32 metadata))",
+  "function collectionOf(address) view returns (tuple(address vault,address curator,address transistors,address treasury,bytes32 root,uint32 count,uint32 reserved,uint32 certified,bytes32 metadata,uint8 saleMode))",
   "function editionOf(address,uint256) view returns (bool official,uint256 index)",
   "function tokenOf(address,uint256) view returns (bool taped,uint256 tokenId)",
   "function isReserved(address,uint256) view returns (bool)",
@@ -192,7 +192,12 @@ function countGates(hex) {
 /** Validates the untrusted manifest against the chain. Returns cleaned works and allowlist, or throws. */
 function checkManifest(m, cfg, col, allowRootOnChain, presaleRootOnChain) {
   const chainId = BigInt(cfg.chainId);
-  if (!m || typeof m !== "object" || !Array.isArray(m.works)) fail("清单格式不对。");
+  if (!m || typeof m !== "object" || m.format !== "curated-collection-manifest/8" || !Array.isArray(m.works)
+    || !Array.isArray(m.designs)) fail("清单格式不对（本页面读取 curated-collection-manifest/8）。");
+  // this reference page sells instant tape-out collections in any order; the platform's site handles the other modes
+  if (Number(col.saleMode) !== 0 || Number(m.launch?.saleMode ?? 0) !== 0 || m.launch?.sequential) {
+    fail("本页面只支持“即时流片”且不按顺序发售的集合。");
+  }
   if (!sameAddr(m.registry, cfg.registry)) fail("清单里的登记合约与本站配置不一致。");
   if (BigInt(m.chainId ?? 0) !== chainId) fail("清单是为另一条链生成的。");
   const curator = col.curator;
@@ -201,21 +206,40 @@ function checkManifest(m, cfg, col, allowRootOnChain, presaleRootOnChain) {
   if (!sameAddr(m.launch?.paymentToken || E.ZeroAddress, S.token ? S.token.address : E.ZeroAddress)) {
     fail("清单里的计价代币与链上记录不一致。");
   }
-  const works = m.works.map((w, i) => {
-    const ok = w && w.index === i && isHex(w.netlist) && Number.isSafeInteger(w.nIn) && Number.isSafeInteger(w.nOut)
-      && typeof w.reserved === "boolean" && /^\d+$/.test(String(w.priceWei)) && !(w.reserved && String(w.priceWei) !== "0");
-    if (!ok) fail(`清单中第 ${i} 件作品的数据不完整或不合法。`);
-    if (typeof w.title !== "string") fail(`清单中第 ${i} 件作品没有标题。`);
-    return { index: i, title: w.title, netlist: w.netlist, nIn: w.nIn, nOut: w.nOut,
-      priceWei: String(w.priceWei), reserved: w.reserved, proof: Array.isArray(w.proof) ? w.proof.map(String) : [],
-      netlistHash: E.keccak256(w.netlist), ...(countGates(w.netlist) || fail(`清单中第 ${i} 件作品的网表格式不对。`)) };
+  // a design is stored once; a run of copies is one entry with "copies"
+  const designs = m.designs.map((d, i) => {
+    if (!d || !isHex(d.netlist) || !Number.isSafeInteger(d.nIn) || !Number.isSafeInteger(d.nOut)) {
+      fail(`清单中第 ${i} 个设计的数据不完整或不合法。`);
+    }
+    return { netlist: d.netlist, nIn: d.nIn, nOut: d.nOut, netlistHash: E.keccak256(d.netlist),
+      ...(countGates(d.netlist) || fail(`清单中第 ${i} 个设计的网表格式不对。`)) };
+  });
+  if (new Set(designs.map((d) => d.netlistHash)).size !== designs.length) fail("清单里有两个相同网表的设计。");
+  const works = [];
+  m.works.forEach((r, k) => {
+    const ok = r && r.first === works.length && Number.isSafeInteger(r.copies) && r.copies >= 1 && r.copies <= 1e6
+      && Number.isSafeInteger(r.design) && r.design >= 0 && r.design < designs.length
+      && typeof r.reserved === "boolean" && /^\d+$/.test(String(r.priceWei)) && !(r.reserved && String(r.priceWei) !== "0");
+    if (!ok) fail(`清单中第 ${k + 1} 组作品的数据不完整或不合法。`);
+    if (typeof r.title !== "string") fail(`清单中第 ${k + 1} 组作品没有标题。`);
+    const d = designs[r.design];
+    for (let c = 0; c < r.copies; c++) {
+      if (works.length >= Number(col.count)) fail("清单的作品数量与链上不一致。");
+      works.push({ index: works.length, run: k, title: r.title, copy: c, copies: r.copies, netlist: d.netlist, nIn: d.nIn,
+        nOut: d.nOut, priceWei: String(r.priceWei), reserved: r.reserved, netlistHash: d.netlistHash, nand: d.nand,
+        latch: d.latch, proof: r.copies === 1 && Array.isArray(r.proof) ? r.proof.map(String) : null });
+    }
   });
   if (works.length !== Number(col.count)) fail("清单的作品数量与链上不一致。");
   if (works.filter((w) => w.reserved).length !== Number(col.reserved)) fail("清单里的国库预留数量与链上不一致。");
-  const root = merkleRoot(works.map((w) => workLeaf(chainId, cfg.registry, curator, w)));
+  // the proofs of copies are not stored (one per copy would repeat thousands of times): rebuilt from the tree
+  const wtree = merkleTree(works.map((w) => workLeaf(chainId, cfg.registry, curator, w)));
+  const root = wtree.root;
   if (root !== col.root.toLowerCase()) fail("清单里的作品（编号、网表、价格或预留标记）与链上锁定的清单不一致。");
   works.forEach((w) => {
-    if (!verifyProof(workLeaf(chainId, cfg.registry, curator, w), w.proof, root)) fail(`清单中第 ${w.index} 件作品的证明无效。`);
+    const leaf = workLeaf(chainId, cfg.registry, curator, w);
+    if (w.proof === null) w.proof = wtree.proof(leaf);
+    if (!verifyProof(leaf, w.proof, root)) fail(`清单中第 ${w.index} 件作品的证明无效。`);
   });
 
   const allow = (Array.isArray(m.allowlist) ? m.allowlist : []).map((a, i) => {
@@ -238,14 +262,19 @@ function checkManifest(m, cfg, col, allowRootOnChain, presaleRootOnChain) {
     const leaves = [];
     const leafOf = presaleLeafMaker(chainId, cfg.registry, curator, col.root);
     const table = tiers.map((t, ti) => {
-      if (!t || !Array.isArray(t.prices) || t.prices.length !== works.length) fail(`预售价第 ${ti + 1} 档不完整。`);
-      return { name: typeof t.name === "string" ? t.name : `第 ${ti + 1} 档`, prices: t.prices.map((pp, i) => {
-        const w = works[i];
-        if (w.reserved ? pp !== null : !/^\d+$/.test(String(pp))) fail(`预售价第 ${ti + 1} 档第 ${i} 件不合法。`);
+      // one price per run of works (null for a reserved run); every copy of a run has a leaf at that price
+      if (!t || !Array.isArray(t.prices) || t.prices.length !== m.works.length) fail(`预售价第 ${ti + 1} 档不完整。`);
+      const perRun = t.prices.map((pp, k) => {
+        const r = m.works[k];
+        if (r.reserved ? pp !== null : !/^\d+$/.test(String(pp))) fail(`预售价第 ${ti + 1} 档第 ${k + 1} 组不合法。`);
         if (pp === null) return null;
-        if (BigInt(pp) > BigInt(w.priceWei)) fail(`预售价第 ${ti + 1} 档第 ${i} 件高于公售价。`);
-        leaves.push(leafOf(i, ti, pp));
+        if (BigInt(pp) > BigInt(r.priceWei)) fail(`预售价第 ${ti + 1} 档第 ${k + 1} 组高于公售价。`);
         return String(pp);
+      });
+      return { name: typeof t.name === "string" ? t.name : `第 ${ti + 1} 档`, prices: works.map((w) => {
+        const pp = perRun[w.run];
+        if (pp !== null) leaves.push(leafOf(w.index, ti, pp));
+        return pp;
       }) };
     });
     const tree = merkleTree(leaves);

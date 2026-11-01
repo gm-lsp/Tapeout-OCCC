@@ -212,6 +212,47 @@ def main(chain=56):
     }
     json.dump(spec, open(os.path.join(HERE, f"collection{sfx}.json"), "w"), indent=1)
     print("wrote", len(spec_works), "works")
+    more_examples(chain, sfx, spec)
+
+
+def more_examples(chain, sfx, base):
+    """Three more collections of the same small circuits: copies sold in list order (instant tape-out, sequential),
+    an instant reveal and a blind box (two price pools each)."""
+    common = {k: base[k] for k in ("chainId", "registry", "curator", "platform", "platformBps", "treasury",
+                                   "mintPriceWei", "mintBatch", "saleStart", "saleEnd", "limitPerWallet", "royalty",
+                                   "spareNand", "spareLatch")}
+    allow = [{"address": "0x00000000000000000000000000000000000A11CE", "quota": 2, "tier": 0},
+             {"address": "0x0000000000000000000000000000000000000B0B", "quota": 1, "tier": 1}]
+    # one design, many copies, sold strictly in list order; the reserved run comes first and is claimed before the sale
+    copies = dict(common, name="P05 Copies", symbol="P5COPY", story="One design sold many times, numbered in order.",
+                  sequential=True, payee="0x000000000000000000000000000000000000BEEF",
+                  presale={"start": 1, "allowlist": allow, "tiers": [
+                      {"name": "OG", "prices": {"1": "5000000000000000"}}, {"name": "Friends", "priceWei": "0"}]},
+                  works=[{"file": "and2.json", "title": "AND (treasury)", "reserved": True, "copies": 2},
+                         {"file": "toggle.json", "title": "Toggle", "priceWei": "10000000000000000", "copies": 5},
+                         {"file": "xor.json", "title": "XOR", "priceWei": "0", "copies": 3}])
+    json.dump(copies, open(os.path.join(HERE, f"copies{sfx}.json"), "w"), indent=1)
+    hidden_works = [
+        {"file": "toggle.json", "title": "Toggle", "pool": 0, "copies": 3, "description": "Flips every cycle.",
+         "attributes": [{"trait_type": "Rarity", "value": "common"}],
+         "imageSha256": "0x" + "11" * 32},
+        {"file": "xor.json", "title": "XOR", "pool": 0, "attributes": [{"trait_type": "Rarity", "value": "common"}]},
+        {"file": "counter4.json", "title": "4-bit counter", "pool": 1,
+         "attributes": [{"trait_type": "Rarity", "value": "传说"}]},
+        {"file": "lfsr7.json", "title": "7-bit LFSR", "pool": 1, "attributes": [{"trait_type": "Rarity", "value": "rare"}]},
+        {"file": "and2.json", "title": "AND (treasury)", "reserved": True},
+    ]
+    pools = [{"name": "Common", "priceWei": "10000000000000000"}, {"name": "Rare", "priceWei": "50000000000000000"}]
+    tiers = [{"name": "OG", "prices": {"1": "20000000000000000"}}, {"name": "Friends", "priceWei": "0"}]
+    reveal = dict(common, name="P05 Instant Reveal", symbol="P5IR", story="Drawn one block after each purchase.",
+                  saleMode="instant-reveal", pools=pools, revealFeeWei="3000000000000000",
+                  presale={"start": 1, "allowlist": allow, "tiers": tiers}, works=hidden_works)
+    json.dump(reveal, open(os.path.join(HERE, f"reveal{sfx}.json"), "w"), indent=1, ensure_ascii=False)
+    box = dict(common, name="P05 Blind Box", symbol="P5BB", story="Opened once the sale is over.",
+               saleMode="blind-box", pools=pools, revealFeeWei="3000000000000000",
+               passURI="ar://" + "P05BlindBoxPassMetadata_NotUploaded_00000000"[:43],
+               presale={"start": 1, "allowlist": allow, "tiers": tiers}, works=hidden_works)
+    json.dump(box, open(os.path.join(HERE, f"blindbox{sfx}.json"), "w"), indent=1, ensure_ascii=False)
 
 
 if __name__ == "__main__":

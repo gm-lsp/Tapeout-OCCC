@@ -1,0 +1,287 @@
+{
+ "format": "curated-collection-manifest/8",
+ "private": true,
+ "chainId": 8453,
+ "registry": "0x00000000000000000000000000000000c0dec0de",
+ "launch": {
+  "name": "P05 Instant Reveal",
+  "symbol": "P5IR",
+  "story": "Drawn one block after each purchase.",
+  "nandSupply": "9983",
+  "latchSupply": "17",
+  "mintPrice": "10000000000000",
+  "mintBatch": "2500",
+  "root": "0xd773f13ea14b5e56315721b7c981c19daf135cee80bbda197369b724133d2bc3",
+  "count": 7,
+  "curator": "0x00000000000000000000000000000000000c0ffe",
+  "platform": "0x0000000000000000000000000000000000001234",
+  "platformBps": 500,
+  "saleStart": 2,
+  "saleEnd": 4102444800,
+  "maxLaunchFees": "450000000000000",
+  "treasury": "0x0000000000000000000000000000000000007ea5",
+  "reservedCount": 1,
+  "limitPerWallet": false,
+  "maxPerWallet": 0,
+  "allowRoot": "0x5c613e24ee1ca9087c2a848a770031bd7520d52746d5ff57d3d64ae5302807a3",
+  "presaleStart": 1,
+  "presalePriceRoot": "0x0c05f35c4eeaecb3978465cfb7ec9a13ef2411aa8f9782b1533cbe0da45b866f",
+  "royaltyReceiver": "0x00000000000000000000000000000000000c0ffe",
+  "royaltyBps": 300,
+  "titlesHash": "0xe13f5c24299046483775ef7cefb46d42824fa3909d560eb6d0bd3e9ca17d8081",
+  "metadataURI": "",
+  "paymentToken": "0x0000000000000000000000000000000000000000",
+  "paymentSymbol": "ETH",
+  "paymentDecimals": 18,
+  "saleMode": 1,
+  "saleModeName": "instant-reveal",
+  "sequential": false,
+  "payee": "0x00000000000000000000000000000000000c0ffe",
+  "hidden": {
+   "poolPrices": [
+    "10000000000000000",
+    "50000000000000000"
+   ],
+   "poolCounts": [
+    4,
+    2
+   ],
+   "revealFee": "3000000000000000",
+   "revealGasPrice": "6413545408",
+   "secretsRoot": "0xdf036cd513ef0f75fdd97a8181631440beb9c9a8f1c214b8ef1e245f84c5706c",
+   "secretHash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+   "metadataRoot": "0x816d9403390b53f9e2a29a9ef09fc1c5b9fcee23ba1abdd16f634c8cb9cbd786",
+   "passURI": ""
+  },
+  "metadataHash": "0xb4e8016c5bd6304a4135d5470d4d5759ae8ccc2abef0f79123a9da81778cef2b",
+  "launchValueWei": "25450000000000000"
+ },
+ "pools": [
+  {
+   "name": "Common",
+   "priceWei": "10000000000000000",
+   "count": 4,
+   "start": 0
+  },
+  {
+   "name": "Rare",
+   "priceWei": "50000000000000000",
+   "count": 2,
+   "start": 4
+  }
+ ],
+ "totals": {
+  "works": 7,
+  "publicWorks": 6,
+  "reservedWorks": 1,
+  "designs": 5,
+  "nandNeeded": 96,
+  "latchNeeded": 14,
+  "netlistBytes": 636
+ },
+ "warnings": [],
+ "designs": [
+  {
+   "netlist": "0x01000007000000030000020000000300000400000002000004000000050000060000000300000300000008000008",
+   "nIn": 1,
+   "nOut": 1,
+   "nand": 6,
+   "latch": 1,
+   "ref": 0,
+   "nState": 1,
+   "bytes": 46,
+   "netlistHash": "0x7ca496e2d18c48a09aea26fc7df653df9c3fa5a10cb1a2bb7ec311c8220130b2"
+  },
+  {
+   "netlist": "0x00000002000003000000020000040000000300000400000005000006",
+   "nIn": 2,
+   "nOut": 1,
+   "nand": 4,
+   "latch": 0,
+   "ref": 0,
+   "nState": 0,
+   "bytes": 28,
+   "netlistHash": "0x564b93679937b8cbafd5ae8fd11f7caf200606f267f1cdb37a38f95e361b2a0f"
+  },
+  {
+   "netlist": "0x0100000b01000011010000170100001d0000000200000100000002000001000000020000060000000100000600000007000007000000080000090000000300000a0000000300000a0000000300000c0000000a00000c0000000d00000d0000000e00000f00000004000010000000040000100000000400001200000010000012000000130000130000001400001500000005000016000000050000160000000500001800000016000018000000190000190000001a00001b000000020000020000000300000300000004000004000000050000050000001e00001e0000001f00001f0000002000002000000021000021",
+   "nIn": 0,
+   "nOut": 4,
+   "nand": 32,
+   "latch": 4,
+   "ref": 0,
+   "nState": 4,
+   "bytes": 240,
+   "netlistHash": "0xb221cfe81351ffd08df1f8161d9391ca77871d04e91bad296f6fbd1742cfe0b0"
+  },
+  {
+   "netlist": "0x01000022010000020100000301000004010000050100000601000007000000080000070000000200000200000003000003000000040000040000000500000500000006000006000000070000070000000800000800000008000009000000070000090000000a00000b0000001100001200000013000013000000140000140000001500000c000000170000170000001800000d000000190000190000001a00000e0000001b00001b0000001c00000f0000001d00001d0000001e0000100000001f00001f00000020000020000000160000210000000200000200000003000003000000040000040000000500000500000006000006000000070000070000000800000800000023000023000000240000240000002500002500000026000026000000270000270000002800002800000029000029",
+   "nIn": 0,
+   "nOut": 7,
+   "nand": 40,
+   "latch": 7,
+   "ref": 0,
+   "nState": 7,
+   "bytes": 308,
+   "netlistHash": "0x79c4116e5b03f7235addf3dda7de15f847a43e9648d8b22e162e877d2dc9d640"
+  },
+  {
+   "netlist": "0x0000000200000300000004000004",
+   "nIn": 2,
+   "nOut": 1,
+   "nand": 2,
+   "latch": 0,
+   "ref": 0,
+   "nState": 0,
+   "bytes": 14,
+   "netlistHash": "0x20af4e3adea53490414d22666f3b23fd7bd084cfaf75ba0ba63b776a0135b66b"
+  }
+ ],
+ "works": [
+  {
+   "first": 0,
+   "copies": 3,
+   "design": 0,
+   "title": "Toggle",
+   "pool": 0,
+   "reserved": false,
+   "meta": {
+    "imageSha256": "0x1111111111111111111111111111111111111111111111111111111111111111",
+    "description": "Flips every cycle.",
+    "attributes": [
+     {
+      "trait_type": "Rarity",
+      "value": "common"
+     }
+    ]
+   }
+  },
+  {
+   "first": 3,
+   "copies": 1,
+   "design": 1,
+   "title": "XOR",
+   "pool": 0,
+   "reserved": false,
+   "meta": {
+    "attributes": [
+     {
+      "trait_type": "Rarity",
+      "value": "common"
+     }
+    ]
+   },
+   "leaf": "0x2d2aa3d0463ea3f4f9d1f19bfa9291a66701acfe8d14f67a84b9d216f0e0e73f",
+   "proof": [
+    "0x0e3b6f1fcee4e9029746058c4eb019cba68d16b64e17e4d7b255620d6d2ef621",
+    "0x3dee0344b5f18cd87707aaf0a5fcd0a70cea8fceb98d7707ea7d8849dadd3d92",
+    "0x3dbc05bda1aad17c8b1e2073d8cceb9aced48d561c2e96aa25784a0efcdd512e"
+   ]
+  },
+  {
+   "first": 4,
+   "copies": 1,
+   "design": 2,
+   "title": "4-bit counter",
+   "pool": 1,
+   "reserved": false,
+   "meta": {
+    "attributes": [
+     {
+      "trait_type": "Rarity",
+      "value": "传说"
+     }
+    ]
+   },
+   "leaf": "0x02911259ca2ec299027c31214232cf5ec1b105b2a30e4b32f9f6e63a3b05f752",
+   "proof": [
+    "0x8ca20d919615d8de0c34337d14c173e9daa305fe407e346f1b43cd7577504768",
+    "0xa5410cb6e45f654758be830db0f015ddfb58d068349ef7b087d8f168439340f7",
+    "0xfb8220190ecd1fc41c34922ce04a082bffcb3137cae4214ed549578bda163e0a"
+   ]
+  },
+  {
+   "first": 5,
+   "copies": 1,
+   "design": 3,
+   "title": "7-bit LFSR",
+   "pool": 1,
+   "reserved": false,
+   "meta": {
+    "attributes": [
+     {
+      "trait_type": "Rarity",
+      "value": "rare"
+     }
+    ]
+   },
+   "leaf": "0x8ca20d919615d8de0c34337d14c173e9daa305fe407e346f1b43cd7577504768",
+   "proof": [
+    "0x02911259ca2ec299027c31214232cf5ec1b105b2a30e4b32f9f6e63a3b05f752",
+    "0xa5410cb6e45f654758be830db0f015ddfb58d068349ef7b087d8f168439340f7",
+    "0xfb8220190ecd1fc41c34922ce04a082bffcb3137cae4214ed549578bda163e0a"
+   ]
+  },
+  {
+   "first": 6,
+   "copies": 1,
+   "design": 4,
+   "title": "AND (treasury)",
+   "reserved": true,
+   "leaf": "0x3898cf9e271ce8a0f771e7d84b7a1884cb438d79449d6be353fd053f3dde765e",
+   "proof": [
+    "0x0000000000000000000000000000000000000000000000000000000000000000",
+    "0x6d6f239698e865c7e97c6fd62a899fc3ad1f852d4837e01cb871ab26bc26ef71",
+    "0xfb8220190ecd1fc41c34922ce04a082bffcb3137cae4214ed549578bda163e0a"
+   ]
+  }
+ ],
+ "allowlist": [
+  {
+   "address": "0x00000000000000000000000000000000000a11ce",
+   "quota": 2,
+   "tier": 0,
+   "leaf": "0x737f8dbd5a0e0dba13e78a13341f41589a4abba8a96a39c3bced976e747adb82",
+   "proof": [
+    "0xda06da61b872bf52dec9e94a6db62b24263e0a32982f1b6c32d843e5b0775002"
+   ]
+  },
+  {
+   "address": "0x0000000000000000000000000000000000000b0b",
+   "quota": 1,
+   "tier": 1,
+   "leaf": "0xda06da61b872bf52dec9e94a6db62b24263e0a32982f1b6c32d843e5b0775002",
+   "proof": [
+    "0x737f8dbd5a0e0dba13e78a13341f41589a4abba8a96a39c3bced976e747adb82"
+   ]
+  }
+ ],
+ "presaleTiers": [
+  {
+   "name": "OG",
+   "prices": [
+    "10000000000000000",
+    "20000000000000000"
+   ]
+  },
+  {
+   "name": "Friends",
+   "prices": [
+    "0",
+    "0"
+   ]
+  }
+ ],
+ "revealGasEstimate": {
+  "0": 410120,
+  "1": 467760
+ },
+ "secrets": [
+  "0xd910d3a7b085496394d6db5a3d8b2c02fb3d3aec90d95570624dfa3f81515332",
+  "0x8635f632fff9f1e5c6ee0262f9af1d50d44ad055c65e5c9b8f85539f46814d23",
+  "0xf542bc098c7fa95565e9f457dcd401459d21bd9746b9140fa6c6fd72c2a78704",
+  "0xf83670d5fae9a897ad96d98170aa46c5426b7e654fba3c7da4cbe6ed43add0b5",
+  "0x52e3ffa8f62b6472f993a1741cecbefd5e34f18c5554309d0038157a8d4f267e",
+  "0xd103b0fc9e7b99a55e04e502e73e0cb7ad36dcdb0c75af4c92a3a56c66590c85"
+ ]
+}

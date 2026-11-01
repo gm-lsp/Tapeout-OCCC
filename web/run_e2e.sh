@@ -30,8 +30,11 @@ case $CHAIN in
   196|8453) FACTORY=0x1f09DAeFA827f02CBb40967cc91b259763760761; SPEC=tool/examples/collection.$CHAIN.json ;;
   *) echo "unknown chain $CHAIN"; exit 1 ;;
 esac
+# the three vault implementations, then the registry that clones them
+impl() { forge create "src/$1.sol:$1" --rpc-url $R --private-key $K1 --broadcast 2>&1 | awk '/Deployed to/{print $3}'; }
+I0=$(impl CuratedVault); I1=$(impl CuratedRevealVault); I2=$(impl CuratedBlindBoxVault)
 REG=$(forge create src/CuratedRegistry.sol:CuratedRegistry --rpc-url $R --private-key $K1 --broadcast \
-  --constructor-args $FACTORY 2>&1 | awk '/Deployed to/{print $3}')
+  --constructor-args $FACTORY $I0 $I1 $I2 2>&1 | awk '/Deployed to/{print $3}')
 NOW=$(cast block latest --field timestamp --rpc-url $R)
 # E2E_TOKEN=1: price the collection in an ERC-20 (a test token with 8 decimals), the tape-out fee stays native
 TOKEN=0x0000000000000000000000000000000000000000

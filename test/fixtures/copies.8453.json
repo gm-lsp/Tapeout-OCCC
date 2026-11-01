@@ -1,0 +1,177 @@
+{
+ "format": "curated-collection-manifest/8",
+ "private": false,
+ "chainId": 8453,
+ "registry": "0x00000000000000000000000000000000c0dec0de",
+ "launch": {
+  "name": "P05 Copies",
+  "symbol": "P5COPY",
+  "story": "One design sold many times, numbered in order.",
+  "nandSupply": "9992",
+  "latchSupply": "8",
+  "mintPrice": "10000000000000",
+  "mintBatch": "2500",
+  "root": "0xbe042c30d19d00293dd9a8caba1f7e6496937566f3cd41f994564d0969e80a88",
+  "count": 10,
+  "curator": "0x00000000000000000000000000000000000c0ffe",
+  "platform": "0x0000000000000000000000000000000000001234",
+  "platformBps": 500,
+  "saleStart": 2,
+  "saleEnd": 4102444800,
+  "maxLaunchFees": "450000000000000",
+  "treasury": "0x0000000000000000000000000000000000007ea5",
+  "reservedCount": 2,
+  "limitPerWallet": false,
+  "maxPerWallet": 0,
+  "allowRoot": "0x5c613e24ee1ca9087c2a848a770031bd7520d52746d5ff57d3d64ae5302807a3",
+  "presaleStart": 1,
+  "presalePriceRoot": "0x958d7c71eb364f4736a22e1b984b907793d8de8284d6eec5d5c0d26c407d1cb3",
+  "royaltyReceiver": "0x00000000000000000000000000000000000c0ffe",
+  "royaltyBps": 300,
+  "titlesHash": "0x545dc37784b6eee8220215b08d3b4cafc31c7b743ad3346d2dad46ac554fd6c2",
+  "metadataURI": "",
+  "paymentToken": "0x0000000000000000000000000000000000000000",
+  "paymentSymbol": "ETH",
+  "paymentDecimals": 18,
+  "saleMode": 0,
+  "saleModeName": "instant-tapeout",
+  "sequential": true,
+  "payee": "0x000000000000000000000000000000000000beef",
+  "hidden": {
+   "poolPrices": [],
+   "poolCounts": [],
+   "revealFee": "0",
+   "revealGasPrice": "0",
+   "secretsRoot": "0x0000000000000000000000000000000000000000000000000000000000000000",
+   "secretHash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+   "metadataRoot": "0x0000000000000000000000000000000000000000000000000000000000000000",
+   "passURI": ""
+  },
+  "metadataHash": "0xb40ae4707bc602f6f16a3226e26ee3244d0e65d0dc8fc930817297f646d5c504",
+  "launchValueWei": "25450000000000000"
+ },
+ "pools": [],
+ "totals": {
+  "works": 10,
+  "publicWorks": 8,
+  "reservedWorks": 2,
+  "designs": 3,
+  "nandNeeded": 46,
+  "latchNeeded": 5,
+  "netlistBytes": 88
+ },
+ "warnings": [],
+ "designs": [
+  {
+   "netlist": "0x0000000200000300000004000004",
+   "nIn": 2,
+   "nOut": 1,
+   "nand": 2,
+   "latch": 0,
+   "ref": 0,
+   "nState": 0,
+   "bytes": 14,
+   "netlistHash": "0x20af4e3adea53490414d22666f3b23fd7bd084cfaf75ba0ba63b776a0135b66b"
+  },
+  {
+   "netlist": "0x01000007000000030000020000000300000400000002000004000000050000060000000300000300000008000008",
+   "nIn": 1,
+   "nOut": 1,
+   "nand": 6,
+   "latch": 1,
+   "ref": 0,
+   "nState": 1,
+   "bytes": 46,
+   "netlistHash": "0x7ca496e2d18c48a09aea26fc7df653df9c3fa5a10cb1a2bb7ec311c8220130b2"
+  },
+  {
+   "netlist": "0x00000002000003000000020000040000000300000400000005000006",
+   "nIn": 2,
+   "nOut": 1,
+   "nand": 4,
+   "latch": 0,
+   "ref": 0,
+   "nState": 0,
+   "bytes": 28,
+   "netlistHash": "0x564b93679937b8cbafd5ae8fd11f7caf200606f267f1cdb37a38f95e361b2a0f"
+  }
+ ],
+ "works": [
+  {
+   "first": 0,
+   "copies": 2,
+   "design": 0,
+   "title": "AND (treasury)",
+   "priceWei": "0",
+   "reserved": true,
+   "leaf": "0xe1c6be16bb797a1172c7d8f8d5ccc24f8311d3d3e076171208e6b75bbcc92857",
+   "proof": [
+    "0xe36a3e733e891646cb004913c94114d9fff0d19fc4309b45cad5eb79e88248b6"
+   ]
+  },
+  {
+   "first": 2,
+   "copies": 5,
+   "design": 1,
+   "title": "Toggle",
+   "priceWei": "10000000000000000",
+   "reserved": false,
+   "leaf": "0x4ba0e1a97711310f5f9bf2ceef7e24f002f1afffd587a9ef64338b2a05245ed3",
+   "proof": [
+    "0x8ac19bf8a0331b5b7d554d5609339ac6fd2bd27523f6628176064b0bc24754ca",
+    "0xe1c6be16bb797a1172c7d8f8d5ccc24f8311d3d3e076171208e6b75bbcc92857"
+   ]
+  },
+  {
+   "first": 7,
+   "copies": 3,
+   "design": 2,
+   "title": "XOR",
+   "priceWei": "0",
+   "reserved": false,
+   "leaf": "0x8ac19bf8a0331b5b7d554d5609339ac6fd2bd27523f6628176064b0bc24754ca",
+   "proof": [
+    "0x4ba0e1a97711310f5f9bf2ceef7e24f002f1afffd587a9ef64338b2a05245ed3",
+    "0xe1c6be16bb797a1172c7d8f8d5ccc24f8311d3d3e076171208e6b75bbcc92857"
+   ]
+  }
+ ],
+ "allowlist": [
+  {
+   "address": "0x00000000000000000000000000000000000a11ce",
+   "quota": 2,
+   "tier": 0,
+   "leaf": "0x737f8dbd5a0e0dba13e78a13341f41589a4abba8a96a39c3bced976e747adb82",
+   "proof": [
+    "0xda06da61b872bf52dec9e94a6db62b24263e0a32982f1b6c32d843e5b0775002"
+   ]
+  },
+  {
+   "address": "0x0000000000000000000000000000000000000b0b",
+   "quota": 1,
+   "tier": 1,
+   "leaf": "0xda06da61b872bf52dec9e94a6db62b24263e0a32982f1b6c32d843e5b0775002",
+   "proof": [
+    "0x737f8dbd5a0e0dba13e78a13341f41589a4abba8a96a39c3bced976e747adb82"
+   ]
+  }
+ ],
+ "presaleTiers": [
+  {
+   "name": "OG",
+   "prices": [
+    null,
+    "5000000000000000",
+    "0"
+   ]
+  },
+  {
+   "name": "Friends",
+   "prices": [
+    null,
+    "0",
+    "0"
+   ]
+  }
+ ]
+}
