@@ -454,6 +454,8 @@ contract RevealForkTest is ModesBase {
         vm.txGasPrice(1 gwei);
         uint256 srv0 = server.balance;
         uint256 buy0 = buyer.balance;
+        address col = vault().PLATFORM() == address(0) ? vault().payee() : vault().PLATFORM();
+        uint256 col0 = vault().owedNative(col);
         string memory uri = "ar://P05RevealedWorkMetadata_File_NotUploaded_00";
         CuratedHiddenBase.HiddenWork memory w1 = _work(e1);
         bytes32[] memory sp1 = _secretProof(s1);
@@ -466,7 +468,8 @@ contract RevealForkTest is ModesBase {
         uint256 repaid = server.balance - srv0;
         assertGt(repaid, 0);
         assertLe(repaid, rf);
-        assertEq(repaid + (buyer.balance - buy0), rf, "reveal fee = repaid gas + refund to the buyer");
+        assertEq(buyer.balance, buy0, "nothing back to the buyer");
+        assertEq(repaid + vault().owedNative(col) - col0, rf, "reveal fee = repaid gas + fee surplus");
         assertEq(C.ownerOf(id1), buyer);
         assertEq(vault().circuitOfSlot(s1), id1);
         (bool off, uint256 idx) = reg.editionOf(address(C), id1);
@@ -485,7 +488,9 @@ contract RevealForkTest is ModesBase {
         assertEq(C.ownerOf(id3), buyer);
         assertTrue(e1 != e2);
         assertGe(e3, 4);
-        assertEq(vaultAddr.balance, 0, "no fee left behind");
+        assertEq(vaultAddr.balance, vault().owedNative(col), "only the fee surplus is left, owed to the platform");
+        vault().withdraw(col);
+        assertEq(vaultAddr.balance, 0, "nothing left behind once withdrawn");
     }
 
     /// Purchases lock the hashes of earlier purchase blocks, also of consecutive blocks; anyone may lock; a slot whose
@@ -529,7 +534,8 @@ contract RevealForkTest is ModesBase {
         _fulfill(s4, _expect(s4, keccak256("h4")));
     }
 
-    /// The reveal fee repays gas only up to REVEAL_GAS_PRICE; anyone can top a slot up; the rest goes to the holder.
+    /// The reveal fee repays gas only up to REVEAL_GAS_PRICE; anyone can top a slot up; the rest is fee surplus,
+    /// credited to the platform (or the payee) and withdrawn on record.
     function test_Reveal_GasPriceCapAndTopUp() public {
         _launch();
         _mirror();
@@ -544,15 +550,25 @@ contract RevealForkTest is ModesBase {
         bytes32[] memory sp = _secretProof(s1);
         bytes32 sec = _secret(s1);
         vm.txGasPrice(cap * 1000); // a caller bidding a huge price is still repaid at the cap
+        address col = vault().PLATFORM() == address(0) ? vault().payee() : vault().PLATFORM();
         uint256 srv0 = server.balance;
         uint256 buy0 = buyer.balance;
+        uint256 col0 = vault().owedNative(col);
         vm.prank(server);
         vault().fulfill(s1, sec, sp, w, "");
         vm.txGasPrice(0);
         uint256 repaid = server.balance - srv0;
+        uint256 surplus = vault().owedNative(col) - col0;
         assertLe(repaid, 800_000 * cap, "repaid at most the gas used at the capped price");
-        assertGt(buyer.balance - buy0, 0.01 ether - repaid, "the holder gets the rest");
-        assertEq(repaid + (buyer.balance - buy0), 0.01 ether + vault().REVEAL_FEE());
+        assertEq(buyer.balance, buy0, "the holder's circuit is delivered; the fees are not returned");
+        assertEq(repaid + surplus, 0.01 ether + vault().REVEAL_FEE(), "the rest is the platform's surplus");
+        // the fee collector withdraws its surplus, on record
+        uint256 cb = col.balance;
+        uint256 owedCol = vault().owedNative(col) + vault().owed(col);
+        vm.expectEmit(true, true, false, true, address(vault()));
+        emit CuratedVaultBase.Withdrawn(col, col, owedCol);
+        vault().withdraw(col);
+        assertEq(col.balance - cb, owedCol);
         vm.expectRevert(CuratedHiddenBase.NotPending.selector);
         vault().topUp{value: 1}(s1);
         // the curator can add a metadata file to a circuit delivered without one, once
@@ -680,8 +696,8 @@ contract RevealForkTest is ModesBase {
         uint256 id1 = _fulfill(s1, _expect(s1, keccak256("y")));
         assertEq(C.ownerOf(id1), address(nr));
         _fulfill(s2, _expect(s2, keccak256("y")));
-        // its reveal-fee refund could not be sent: it is kept for it
-        assertGt(vault().owedNative(address(nr)), 0);
+        // the fee surplus is the platform's, not the holder's
+        assertEq(vault().owedNative(address(nr)), 0);
     }
 
     /// The registry checks the pools and the commitments of a hidden sale at launch.
@@ -723,8 +739,9 @@ contract RevealForkTest is ModesBase {
     }
 
     /// Presale prices are per pool and tier.
-    /// Rebates: only after the sale, only the curator, exactly the price, once; the circuit stays with the buyer.
-    function test_Reveal_Rebate() public {
+    /// Mint refund: only after the sale, only the curator, exactly the price, once, to the circuit's current holder;
+    /// the circuit stays.
+    function test_Reveal_MintRefund() public {
         _launch();
         _mirror();
         uint256 b = vm.getBlockNumber();
@@ -737,22 +754,24 @@ contract RevealForkTest is ModesBase {
         uint256 price = vault().poolPrice(0);
         vm.prank(curator);
         vm.expectRevert(CuratedVaultBase.SaleNotOver.selector);
-        vault().rebate{value: price}(ids);
+        vault().mintRefund{value: price}(ids);
         vm.warp(vault().SALE_END());
         vm.prank(attacker);
         vm.expectRevert(CuratedVaultBase.OnlyCurator.selector);
-        vault().rebate{value: price}(ids);
+        vault().mintRefund{value: price}(ids);
         vm.prank(curator);
         vm.expectRevert(abi.encodeWithSelector(CuratedVaultBase.WrongPayment.selector, price));
-        vault().rebate{value: price - 1}(ids);
-        uint256 b0 = buyer.balance;
+        vault().mintRefund{value: price - 1}(ids);
+        vm.prank(buyer);
+        C.transferFrom(buyer, attacker, id);
+        uint256 b0 = attacker.balance;
         vm.prank(curator);
-        vault().rebate{value: price}(ids);
-        assertEq(buyer.balance - b0, price, "only the price; the fees were spent");
-        assertEq(C.ownerOf(id), buyer);
+        vault().mintRefund{value: price}(ids);
+        assertEq(attacker.balance - b0, price, "only the mint price, to the current holder");
+        assertEq(C.ownerOf(id), attacker);
         vm.prank(curator);
-        vm.expectRevert(CuratedVaultBase.NothingToRebate.selector);
-        vault().rebate{value: price}(ids);
+        vm.expectRevert(CuratedVaultBase.NothingToRefund.selector);
+        vault().mintRefund{value: price}(ids);
     }
 
     function test_Reveal_PresalePerPool() public {
@@ -1005,8 +1024,9 @@ contract BlindBoxForkTest is ModesBase {
     }
 
     /// In one block, a pass sold and then redeemed goes to the buyer; redeemed and then "sold" leaves nothing to sell.
-    /// After the sale the curator can return the price of redeemed passes to their minters; circuits stay put.
-    function test_Box_RebateToMinter() public {
+    /// Mint refund: after the sale the curator can return the price of redeemed passes to the circuits' current
+    /// holders (not the minters); circuits stay put.
+    function test_Box_MintRefundToHolder() public {
         _launch();
         uint256[] memory s = _sellOut();
         bytes32 seed = _reveal();
@@ -1018,18 +1038,20 @@ contract BlindBoxForkTest is ModesBase {
         w[0] = _work(_assigned(s[0], seed));
         vault().redeem(one, w);
         uint256 price = vault().poolPrice(0);
-        uint256 b0 = buyer.balance;
+        uint256 b0 = attacker.balance;
+        uint256 m0 = buyer.balance;
         vm.prank(curator);
-        vault().rebate{value: price}(one);
-        assertEq(buyer.balance - b0, price, "the minter gets the price back");
+        vault().mintRefund{value: price}(one);
+        assertEq(attacker.balance - b0, price, "the circuit's holder gets the mint price back");
+        assertEq(buyer.balance, m0, "not the minter");
         assertEq(C.ownerOf(vault().circuitOfSlot(s[0])), attacker, "the circuit stays with its holder");
         vm.prank(curator);
-        vm.expectRevert(CuratedVaultBase.NothingToRebate.selector);
-        vault().rebate{value: price}(one);
+        vm.expectRevert(CuratedVaultBase.NothingToRefund.selector);
+        vault().mintRefund{value: price}(one);
         one[0] = s[1]; // not redeemed yet
         vm.prank(curator);
-        vm.expectRevert(CuratedVaultBase.NothingToRebate.selector);
-        vault().rebate{value: price}(one);
+        vm.expectRevert(CuratedVaultBase.NothingToRefund.selector);
+        vault().mintRefund{value: price}(one);
     }
 
     function test_Box_SameBlockTradeAndRedeem() public {

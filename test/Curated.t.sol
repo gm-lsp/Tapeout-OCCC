@@ -543,8 +543,9 @@ contract CuratedForkTest is Test {
         vault.finalize();
     }
 
-    /// After the sale the curator can return the price of sold works to their minters (once each); circuits stay.
-    function test_Rebate_PriceBackCircuitStays() public {
+    /// Mint refund: after the sale the curator can return the mint price of sold works to the circuits' current
+    /// holders (once each); circuits stay.
+    function test_MintRefund_PriceToHolderCircuitStays() public {
         _launch();
         uint256 id0 = _buy(0, buyer);
         uint256 id1 = _buy(1, buyer);
@@ -557,29 +558,33 @@ contract CuratedForkTest is Test {
         uint256 total = w0.price + w1.price;
         vm.prank(curator);
         vm.expectRevert(CuratedVaultBase.SaleNotOver.selector);
-        vault.rebate{value: total}(both);
+        vault.mintRefund{value: total}(both);
         vm.warp(vault.SALE_END());
         vm.prank(attacker);
         vm.expectRevert(CuratedVaultBase.OnlyCurator.selector);
-        vault.rebate{value: total}(both);
+        vault.mintRefund{value: total}(both);
         vm.prank(curator);
         vm.expectRevert(abi.encodeWithSelector(CuratedVaultBase.WrongPayment.selector, total));
-        vault.rebate{value: total + 1}(both);
+        vault.mintRefund{value: total + 1}(both);
+        vm.prank(buyer);
+        C.transferFrom(buyer, attacker, id1); // sold on: the refund follows the circuit
         uint256 b0 = buyer.balance;
+        uint256 a0 = attacker.balance;
         vm.prank(curator);
-        vault.rebate{value: total}(both);
-        assertEq(buyer.balance - b0, total, "the prices back, not the tape-out fees");
+        vault.mintRefund{value: total}(both);
+        assertEq(buyer.balance - b0, w0.price, "the mint price back to the holder, not the tape-out fee");
+        assertEq(attacker.balance - a0, w1.price, "the current holder, not the minter");
         assertEq(C.ownerOf(id0), buyer);
-        assertEq(C.ownerOf(id1), buyer);
+        assertEq(C.ownerOf(id1), attacker);
         assertTrue(reg.isOfficial(address(C), id0));
         uint256[] memory one = new uint256[](1);
         vm.prank(curator);
-        vm.expectRevert(CuratedVaultBase.NothingToRebate.selector);
-        vault.rebate{value: w0.price}(both);
+        vm.expectRevert(CuratedVaultBase.NothingToRefund.selector);
+        vault.mintRefund{value: w0.price}(both);
         one[0] = 3; // a free work
         vm.prank(curator);
-        vm.expectRevert(CuratedVaultBase.NothingToRebate.selector);
-        vault.rebate(one);
+        vm.expectRevert(CuratedVaultBase.NothingToRefund.selector);
+        vault.mintRefund(one);
         assertEq(C.ownerOf(id3), buyer);
     }
 

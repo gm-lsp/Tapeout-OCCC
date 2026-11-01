@@ -92,9 +92,14 @@ abstract contract CuratedVaultBase is ReentrancyGuard, ICircuitURIProvider, ICur
     mapping(address wallet => uint32) public presaleBought;
 
     event Paid(address indexed to, uint256 amount, bool deferred);
-    event Withdrawn(address indexed payee, uint256 amount);
-    /// @notice the curator returned the price of an already minted work to its minter, who keeps the circuit
-    event Rebated(uint256 indexed key, address indexed minter, uint256 amount);
+    /// @notice a withdrawal of what the vault kept for `payee` (failed payouts, fee surplus), sent to `to`
+    event Withdrawn(address indexed payee, address indexed to, uint256 amount);
+    /// @notice Mint refund: the curator returned the mint price of an already minted work to its current holder, who
+    /// keeps the circuit
+    event MintRefunded(uint256 indexed key, address indexed holder, uint256 amount);
+    /// @notice what was left of a hidden slot's tape-out and reveal fees, credited to the fee collector (`owedNative`
+    /// of the platform, or of the payee when there is none)
+    event FeeSurplus(uint256 indexed slot, uint256 amount);
     event Finalized(uint256 nandBurned, uint256 latchBurned);
     event SalePaused(bool paused);
     event SaleEndExtended(uint64 previousEnd, uint64 newEnd);
@@ -130,7 +135,7 @@ abstract contract CuratedVaultBase is ReentrancyGuard, ICircuitURIProvider, ICur
     error TokenAmountMismatch(uint256 expected, uint256 received);
     error InvalidPresalePrice();
     error PresaleAbovePrice(uint256 presalePrice, uint256 price);
-    error NothingToRebate();
+    error NothingToRefund();
     error SaleNotOver();
 
     /// @dev the implementation itself can never be initialised; only its clones can
@@ -384,12 +389,19 @@ abstract contract CuratedVaultBase is ReentrancyGuard, ICircuitURIProvider, ICur
         if (reservedClaimed >= RESERVED_COUNT) revert ReservedQuotaUsed();
     }
 
-    // ------------------------------------------------------------------ rebates (the curator returns a price)
+    // ------------------------------------------------------------------ mint refunds (the curator returns a mint price)
 
-    /// @dev Pays one rebate of `amount` to `to`, taken from the curator (native: from `left`, what is left of msg.value;
-    /// token: pulled, exact), kept in `owed` if the transfer fails. Returns what is left of msg.value.
-    function _rebate(uint256 key, address to, uint256 amount, uint256 left) internal returns (uint256) {
-        if (amount == 0) revert NothingToRebate();
+    /// @dev Pays one mint refund of `amount` to `to`, taken from the curator (native: from `left`, what is left of
+    /// msg.value; token: pulled, exact), kept in `owed` if the transfer fails. Returns what is left of msg.value.
+    function _mintRefund(uint256 key, address to, uint256 amount, uint256 left) internal returns (uint256) {
+        if (amount == 0) revert NothingToRefund();
+        emit MintRefunded(key, to, amount);
+        return _payBack(to, amount, left);
+    }
+
+    /// @dev sends a price `amount` back to `to`, taken from the curator (native: from `left`; token: pulled, exact);
+    /// returns what is left of `left`
+    function _payBack(address to, uint256 amount, uint256 left) internal returns (uint256) {
         if (PAYMENT_TOKEN == address(0)) {
             if (left < amount) revert WrongPayment(amount);
             left -= amount;
@@ -397,7 +409,6 @@ abstract contract CuratedVaultBase is ReentrancyGuard, ICircuitURIProvider, ICur
             _pullToken(amount);
         }
         _send(to, amount);
-        emit Rebated(key, to, amount);
         return left;
     }
 
@@ -420,6 +431,7 @@ abstract contract CuratedVaultBase is ReentrancyGuard, ICircuitURIProvider, ICur
         if (amount == 0 && native == 0) revert NothingOwed();
         owed[who] = 0;
         owedNative[who] = 0;
+        emit Withdrawn(who, to, amount + native);
         if (amount > 0) {
             if (PAYMENT_TOKEN == address(0)) {
                 native += amount;
@@ -431,7 +443,6 @@ abstract contract CuratedVaultBase is ReentrancyGuard, ICircuitURIProvider, ICur
             (bool ok,) = to.call{value: native}("");
             if (!ok) revert TransferFailed();
         }
-        emit Withdrawn(who, amount + native);
     }
 
     // ------------------------------------------------------------------ finalize and sale controls

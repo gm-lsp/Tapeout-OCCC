@@ -45,11 +45,6 @@ contract CuratedRevealVault is CuratedHiddenBase {
         }
     }
 
-    /// @dev an instant-reveal slot's holder never changes
-    function _minterOf(uint256, Slot storage s) internal view override returns (address) {
-        return s.holder;
-    }
-
     function _onSlot(uint256 slot, uint32 pool, uint32 pos, address) internal override {
         queue[pool][pos] = slot;
         _anchor(block.number);
@@ -136,7 +131,7 @@ contract CuratedRevealVault is CuratedHiddenBase {
         tokenId = _deliver(slot, s, w);
         if (bytes(uri).length != 0) REGISTRY.declareTokenURI(address(circuits), tokenId, uri);
         // calldata is repaid only for what the call needs (netlist, proofs, a bounded rest), so padding pays nothing
-        _settleGas(s, g0 - gasleft() + TX_BASE_GAS + _calldataGas(w) + 512 * secretProof.length);
+        _settleGas(slot, s, g0 - gasleft() + TX_BASE_GAS + _calldataGas(w) + 512 * secretProof.length);
     }
 
     /// @notice Curator only: declare the metadata file of a delivered circuit that was taped out without one (the

@@ -1335,7 +1335,8 @@ def build(spec_path: str, out_path: str, url: str | None = None) -> dict:
     if hidden:
         if "revealFeeWei" not in spec:
             raise DesignError("a hidden sale needs revealFeeWei: the native coin each buyer prepays for the gas of the "
-                              "transaction that tapes the slot's work out (unused gas goes back to the holder)")
+                              "transaction that tapes the slot's work out (what is left after the delivery is fee surplus, "
+                              "withdrawable by the platform, or the payee when there is none)")
         reveal_fee = _uint(spec["revealFeeWei"], "revealFeeWei")
         gas_est = {}
         for p in range(len(pools)):
@@ -1356,6 +1357,10 @@ def build(spec_path: str, out_path: str, url: str | None = None) -> dict:
             if reveal_fee < need:
                 warnings.append(f"revealFeeWei {reveal_fee} is below the estimated gas of the largest work at the "
                                 f"reference gas price ({need}): reveals would wait for cheaper gas")
+            elif reveal_fee < 3 * need:
+                warnings.append(f"revealFeeWei {reveal_fee} leaves less than 3x headroom over the estimated gas at the "
+                                f"reference gas price ({need}): the same budget also absorbs gas spikes and a rise of "
+                                f"TapeOut's fee; a generous fee costs nothing extra, what is left is fee surplus")
         pass_uri = spec.get("passURI", "")
         if mode == 2:
             if pass_uri and not is_content_uri(pass_uri):

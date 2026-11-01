@@ -20,11 +20,11 @@ contract CuratedVault is CuratedVaultBase {
     mapping(uint256 index => bool) public taken;
 
     struct Sale {
-        address minter; // the recipient of the sale
-        uint96 price; // what was paid for the work; 0 once rebated
+        uint128 tokenId; // the circuit the sale taped out
+        uint128 price; // the mint price paid for it; 0 once refunded (mintRefund)
     }
 
-    /// @notice who received each sold work and what was paid for it (for rebates)
+    /// @notice the circuit and the mint price of each sold work (for mint refunds)
     mapping(uint256 index => Sale) public saleOf;
 
     event Purchased(uint256 indexed index, uint256 indexed tokenId, address indexed recipient, uint256 price);
@@ -213,7 +213,7 @@ contract CuratedVault is CuratedVaultBase {
         taken[index] = true;
         _pullToken(charge);
         tokenId = _tapeOut(index, netlist, nIn, nOut, recipient, false, fee);
-        saleOf[index] = Sale(recipient, uint96(charge > type(uint96).max ? type(uint96).max : charge));
+        saleOf[index] = Sale(uint128(tokenId), uint128(charge > type(uint128).max ? type(uint128).max : charge));
         emit Purchased(index, tokenId, recipient, charge);
         _distribute(charge);
     }
@@ -301,11 +301,11 @@ contract CuratedVault is CuratedVaultBase {
         }
     }
 
-    /// @notice Curator only, once the sale is over (every work taped out, or the sale end passed): return the price
-    /// paid for each of the sold works `indexes` to the address that received it at mint (once per work). The circuits
-    /// stay with their holders; the tape-out fee is not returned (it was spent on the tape-out). The curator sends the
-    /// total with the call (native coin: exactly; token: approved to this vault).
-    function rebate(uint256[] calldata indexes) external payable nonReentrant {
+    /// @notice Mint refund. Curator only, once the sale is over (every work taped out, or the sale end passed): return
+    /// the mint price paid for each of the sold works `indexes` to the circuit's current holder (once per work). The
+    /// circuit stays with its holder and stays official; the tape-out fee is not returned. The curator sends the total
+    /// with the call (native coin: exactly; token: approved to this vault).
+    function mintRefund(uint256[] calldata indexes) external payable nonReentrant {
         _onlyCurator();
         if (block.timestamp < saleEnd && sold < COUNT) revert SaleNotOver();
         uint256 left = msg.value;
@@ -313,7 +313,7 @@ contract CuratedVault is CuratedVaultBase {
             Sale storage x = saleOf[indexes[i]];
             uint256 a = x.price;
             x.price = 0;
-            left = _rebate(indexes[i], x.minter, a, left);
+            left = _mintRefund(indexes[i], circuits.ownerOf(x.tokenId), a, left);
         }
         if (left != 0) revert WrongPayment(msg.value - left);
     }

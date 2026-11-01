@@ -196,26 +196,34 @@ abstract contract CuratedHiddenBase is CuratedVaultBase {
         _distribute(charge);
     }
 
-    /// @notice Curator only, once the sale is over: return the price paid for each delivered slot of `ids` to the
-    /// address that received the slot at purchase (once per slot). The circuits stay with their holders; the tape-out
-    /// and reveal fees are not returned (they were spent on the delivery). The curator sends the total with the call
-    /// (native coin: exactly; token: approved to this vault).
-    function rebate(uint256[] calldata ids) external payable nonReentrant {
+    /// @notice Mint refund. Curator only, once the sale is over: return the mint price paid for each delivered slot of
+    /// `ids` to its circuit's current holder (once per slot). The circuit stays with its holder; the tape-out and
+    /// reveal fees are not returned. The curator sends the total with the call (native coin: exactly; token: approved).
+    function mintRefund(uint256[] calldata ids) external payable nonReentrant {
         _onlyCurator();
         if (!_saleOver()) revert SaleNotOver();
         uint256 left = msg.value;
         for (uint256 i; i < ids.length; i++) {
             Slot storage s = slots[ids[i]];
-            if (s.state != DELIVERED) revert NothingToRebate();
+            if (s.state != DELIVERED) revert NothingToRefund();
             uint256 a = s.paid;
             s.paid = 0;
-            left = _rebate(ids[i], _minterOf(ids[i], s), a, left);
+            left = _mintRefund(ids[i], circuits.ownerOf(circuitOfSlot[ids[i]]), a, left);
         }
         if (left != 0) revert WrongPayment(msg.value - left);
     }
 
-    /// @dev the address that received slot `slot` at purchase
-    function _minterOf(uint256 slot, Slot storage s) internal view virtual returns (address);
+    /// @notice Where the surplus of hidden slots' fees goes: the platform, or the payee when there is none.
+    function _feeCollector() internal view returns (address) {
+        return PLATFORM != address(0) ? PLATFORM : payee;
+    }
+
+    /// @dev credits what is left of a slot's fees to the fee collector, who withdraws it (withdraw / withdrawTo)
+    function _surplus(uint256 slot, uint256 amount) internal {
+        if (amount == 0) return;
+        owedNative[_feeCollector()] += amount;
+        emit FeeSurplus(slot, amount);
+    }
 
     /// @dev mode-specific bookkeeping of a new slot
     function _onSlot(uint256 slot, uint32 pool, uint32 pos, address recipient) internal virtual;
@@ -254,7 +262,7 @@ abstract contract CuratedHiddenBase is CuratedVaultBase {
 
     /// @notice Add native coin to a pending slot's fees, for example when TapeOut's fee has risen above what the slot
     /// holds or gas is dearer than its reveal fee covers. Anyone may call (the holder, the platform); whatever is left
-    /// after the delivery goes to the holder.
+    /// after the delivery is surplus (_surplus).
     function topUp(uint256 slot) external payable {
         Slot storage s = slots[slot];
         if (s.state != PENDING) revert NotPending();
@@ -269,29 +277,24 @@ abstract contract CuratedHiddenBase is CuratedVaultBase {
     }
 
     /// @dev repays the caller min(gas used x min(gas price, REVEAL_GAS_PRICE), the slot's remaining budget); the rest
-    /// goes to the holder
-    function _settleGas(Slot storage s, uint256 gasUsed) internal {
+    /// is surplus, credited to the fee collector
+    function _settleGas(uint256 slot, Slot storage s, uint256 gasUsed) internal {
         uint256 budget = s.feeHeld;
         s.feeHeld = 0;
         uint256 gp = tx.gasprice < REVEAL_GAS_PRICE ? tx.gasprice : REVEAL_GAS_PRICE;
         uint256 cost = gasUsed * gp;
         uint256 pay = cost < budget ? cost : budget;
         _sendNative(msg.sender, pay);
-        _sendNative(s.holder, budget - pay);
+        _surplus(slot, budget - pay);
     }
 
-    /// @dev returns `paid` (from the curator) and the slot's fees to its holder; returns what is left of `value`
+    /// @dev returns `paid` (from the curator) and the slot's fees, never spent (nothing was taped out), to its holder;
+    /// returns what is left of `value`
     function _refund(uint256 slot, Slot storage s, uint256 value) internal returns (uint256) {
         s.state = REFUNDED;
         slotsSettled += 1;
         uint256 paid = s.paid;
-        if (PAYMENT_TOKEN == address(0)) {
-            if (value < paid) revert WrongPayment(paid);
-            value -= paid;
-        } else if (paid > 0) {
-            IERC20(PAYMENT_TOKEN).safeTransferFrom(msg.sender, address(this), paid);
-        }
-        if (paid > 0) _send(s.holder, paid);
+        if (paid > 0) value = _payBack(s.holder, paid, value);
         uint256 fees = uint256(s.feeHeld) + REVEAL_FEE;
         s.feeHeld = 0;
         _sendNative(s.holder, fees);

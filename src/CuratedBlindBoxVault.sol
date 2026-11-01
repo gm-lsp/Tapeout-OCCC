@@ -48,15 +48,7 @@ contract CuratedBlindBoxVault is CuratedHiddenBase {
         PASS_URI = p.hidden.passURI;
     }
 
-    /// @notice the address a pass was minted to (passes change hands; rebates go to the minter)
-    mapping(uint256 slot => address) internal minterOf;
-
-    function _minterOf(uint256 slot, Slot storage) internal view override returns (address) {
-        return minterOf[slot];
-    }
-
     function _onSlot(uint256 slot, uint32, uint32, address recipient) internal override {
-        minterOf[slot] = recipient;
         _balance[recipient] += 1;
         emit Transfer(address(0), recipient, slot);
     }
@@ -144,7 +136,7 @@ contract CuratedBlindBoxVault is CuratedHiddenBase {
             s.state = DELIVERED;
             slotsSettled += 1;
             _deliver(ids[i], s, works[i]);
-            _settleGas(s, gi - gasleft() + shared + _calldataGas(works[i]));
+            _settleGas(ids[i], s, gi - gasleft() + shared + _calldataGas(works[i]));
         }
     }
 
