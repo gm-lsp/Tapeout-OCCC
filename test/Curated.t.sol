@@ -543,6 +543,46 @@ contract CuratedForkTest is Test {
         vault.finalize();
     }
 
+    /// After the sale the curator can return the price of sold works to their minters (once each); circuits stay.
+    function test_Rebate_PriceBackCircuitStays() public {
+        _launch();
+        uint256 id0 = _buy(0, buyer);
+        uint256 id1 = _buy(1, buyer);
+        uint256 id3 = _buy(3, buyer); // free
+        Work memory w0 = _work(0);
+        Work memory w1 = _work(1);
+        uint256[] memory both = new uint256[](2);
+        both[0] = 0;
+        both[1] = 1;
+        uint256 total = w0.price + w1.price;
+        vm.prank(curator);
+        vm.expectRevert(CuratedVaultBase.SaleNotOver.selector);
+        vault.rebate{value: total}(both);
+        vm.warp(vault.SALE_END());
+        vm.prank(attacker);
+        vm.expectRevert(CuratedVaultBase.OnlyCurator.selector);
+        vault.rebate{value: total}(both);
+        vm.prank(curator);
+        vm.expectRevert(abi.encodeWithSelector(CuratedVaultBase.WrongPayment.selector, total));
+        vault.rebate{value: total + 1}(both);
+        uint256 b0 = buyer.balance;
+        vm.prank(curator);
+        vault.rebate{value: total}(both);
+        assertEq(buyer.balance - b0, total, "the prices back, not the tape-out fees");
+        assertEq(C.ownerOf(id0), buyer);
+        assertEq(C.ownerOf(id1), buyer);
+        assertTrue(reg.isOfficial(address(C), id0));
+        uint256[] memory one = new uint256[](1);
+        vm.prank(curator);
+        vm.expectRevert(CuratedVaultBase.NothingToRebate.selector);
+        vault.rebate{value: w0.price}(both);
+        one[0] = 3; // a free work
+        vm.prank(curator);
+        vm.expectRevert(CuratedVaultBase.NothingToRebate.selector);
+        vault.rebate(one);
+        assertEq(C.ownerOf(id3), buyer);
+    }
+
     /// M-1: an unsold (or unbuyable) work cannot block finalize forever.
     function test_M1_FinalizeAfterSaleEnd() public {
         _launch();

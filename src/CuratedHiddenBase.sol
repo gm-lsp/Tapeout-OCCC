@@ -196,6 +196,27 @@ abstract contract CuratedHiddenBase is CuratedVaultBase {
         _distribute(charge);
     }
 
+    /// @notice Curator only, once the sale is over: return the price paid for each delivered slot of `ids` to the
+    /// address that received the slot at purchase (once per slot). The circuits stay with their holders; the tape-out
+    /// and reveal fees are not returned (they were spent on the delivery). The curator sends the total with the call
+    /// (native coin: exactly; token: approved to this vault).
+    function rebate(uint256[] calldata ids) external payable nonReentrant {
+        _onlyCurator();
+        if (!_saleOver()) revert SaleNotOver();
+        uint256 left = msg.value;
+        for (uint256 i; i < ids.length; i++) {
+            Slot storage s = slots[ids[i]];
+            if (s.state != DELIVERED) revert NothingToRebate();
+            uint256 a = s.paid;
+            s.paid = 0;
+            left = _rebate(ids[i], _minterOf(ids[i], s), a, left);
+        }
+        if (left != 0) revert WrongPayment(msg.value - left);
+    }
+
+    /// @dev the address that received slot `slot` at purchase
+    function _minterOf(uint256 slot, Slot storage s) internal view virtual returns (address);
+
     /// @dev mode-specific bookkeeping of a new slot
     function _onSlot(uint256 slot, uint32 pool, uint32 pos, address recipient) internal virtual;
 

@@ -723,6 +723,38 @@ contract RevealForkTest is ModesBase {
     }
 
     /// Presale prices are per pool and tier.
+    /// Rebates: only after the sale, only the curator, exactly the price, once; the circuit stays with the buyer.
+    function test_Reveal_Rebate() public {
+        _launch();
+        _mirror();
+        uint256 b = vm.getBlockNumber();
+        uint256 s1 = _buy(0, buyer);
+        vm.roll(b + 2);
+        vm.setBlockhash(b + 1, keccak256("r"));
+        uint256 id = _fulfill(s1, _expect(s1, keccak256("r")));
+        uint256[] memory ids = new uint256[](1);
+        ids[0] = s1;
+        uint256 price = vault().poolPrice(0);
+        vm.prank(curator);
+        vm.expectRevert(CuratedVaultBase.SaleNotOver.selector);
+        vault().rebate{value: price}(ids);
+        vm.warp(vault().SALE_END());
+        vm.prank(attacker);
+        vm.expectRevert(CuratedVaultBase.OnlyCurator.selector);
+        vault().rebate{value: price}(ids);
+        vm.prank(curator);
+        vm.expectRevert(abi.encodeWithSelector(CuratedVaultBase.WrongPayment.selector, price));
+        vault().rebate{value: price - 1}(ids);
+        uint256 b0 = buyer.balance;
+        vm.prank(curator);
+        vault().rebate{value: price}(ids);
+        assertEq(buyer.balance - b0, price, "only the price; the fees were spent");
+        assertEq(C.ownerOf(id), buyer);
+        vm.prank(curator);
+        vm.expectRevert(CuratedVaultBase.NothingToRebate.selector);
+        vault().rebate{value: price}(ids);
+    }
+
     function test_Reveal_PresalePerPool() public {
         P.presaleStart = uint64(block.timestamp);
         P.saleStart = uint64(block.timestamp + 1 days);
@@ -825,7 +857,8 @@ contract BlindBoxForkTest is ModesBase {
         _launch();
         bytes32 key = keccak256("TAP-OCCC");
         uint256[6] memory want = [uint256(2), 5, 0, 1, 4, 3];
-        for (uint256 x; x < 6; x++) assertEq(vault().permute(x, 6, key), want[x]);
+        // the contract's permutation is checked against this one in test_Box_RevealAndRedeem (assignedIndex)
+        for (uint256 x; x < 6; x++) assertEq(_permute(x, 6, key), want[x]);
         bytes32 s1 = 0x0101010101010101010101010101010101010101010101010101010101010101;
         bytes32 h2 = 0x0202020202020202020202020202020202020202020202020202020202020202;
         assertEq(keccak256(abi.encode(s1, h2)), 0x346d8c96a2454213fcc0daff3c96ad0398148181b9fa6488f7ae2c0af5b20aa0);
@@ -972,6 +1005,33 @@ contract BlindBoxForkTest is ModesBase {
     }
 
     /// In one block, a pass sold and then redeemed goes to the buyer; redeemed and then "sold" leaves nothing to sell.
+    /// After the sale the curator can return the price of redeemed passes to their minters; circuits stay put.
+    function test_Box_RebateToMinter() public {
+        _launch();
+        uint256[] memory s = _sellOut();
+        bytes32 seed = _reveal();
+        vm.prank(buyer);
+        vault().transferFrom(buyer, attacker, s[0]); // the pass changes hands before redemption
+        uint256[] memory one = new uint256[](1);
+        CuratedHiddenBase.HiddenWork[] memory w = new CuratedHiddenBase.HiddenWork[](1);
+        one[0] = s[0];
+        w[0] = _work(_assigned(s[0], seed));
+        vault().redeem(one, w);
+        uint256 price = vault().poolPrice(0);
+        uint256 b0 = buyer.balance;
+        vm.prank(curator);
+        vault().rebate{value: price}(one);
+        assertEq(buyer.balance - b0, price, "the minter gets the price back");
+        assertEq(C.ownerOf(vault().circuitOfSlot(s[0])), attacker, "the circuit stays with its holder");
+        vm.prank(curator);
+        vm.expectRevert(CuratedVaultBase.NothingToRebate.selector);
+        vault().rebate{value: price}(one);
+        one[0] = s[1]; // not redeemed yet
+        vm.prank(curator);
+        vm.expectRevert(CuratedVaultBase.NothingToRebate.selector);
+        vault().rebate{value: price}(one);
+    }
+
     function test_Box_SameBlockTradeAndRedeem() public {
         _launch();
         uint256[] memory s = _sellOut();

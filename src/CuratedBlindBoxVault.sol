@@ -48,7 +48,15 @@ contract CuratedBlindBoxVault is CuratedHiddenBase {
         PASS_URI = p.hidden.passURI;
     }
 
+    /// @notice the address a pass was minted to (passes change hands; rebates go to the minter)
+    mapping(uint256 slot => address) internal minterOf;
+
+    function _minterOf(uint256 slot, Slot storage) internal view override returns (address) {
+        return minterOf[slot];
+    }
+
     function _onSlot(uint256 slot, uint32, uint32, address recipient) internal override {
+        minterOf[slot] = recipient;
         _balance[recipient] += 1;
         emit Transfer(address(0), recipient, slot);
     }
@@ -100,7 +108,7 @@ contract CuratedBlindBoxVault is CuratedHiddenBase {
 
     /// @notice A pseudo-random permutation of [0, n): a 4-round Feistel network on 2k bits (4^k >= n, k >= 1) with
     /// round function keccak256(abi.encode(key, round, right)) masked to k bits, cycle-walked into [0, n).
-    function permute(uint256 x, uint256 n, bytes32 key) public pure returns (uint256) {
+    function permute(uint256 x, uint256 n, bytes32 key) internal pure returns (uint256) {
         uint256 k = 1;
         while ((uint256(1) << (2 * k)) < n) k++;
         uint256 mask = (uint256(1) << k) - 1;

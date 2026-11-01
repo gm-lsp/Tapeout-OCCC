@@ -19,6 +19,14 @@ contract CuratedVault is CuratedVaultBase {
     bool public SEQUENTIAL;
     mapping(uint256 index => bool) public taken;
 
+    struct Sale {
+        address minter; // the recipient of the sale
+        uint96 price; // what was paid for the work; 0 once rebated
+    }
+
+    /// @notice who received each sold work and what was paid for it (for rebates)
+    mapping(uint256 index => Sale) public saleOf;
+
     event Purchased(uint256 indexed index, uint256 indexed tokenId, address indexed recipient, uint256 price);
     event ReservedClaimed(uint256 indexed index, uint256 indexed tokenId, address indexed treasury);
 
@@ -205,6 +213,7 @@ contract CuratedVault is CuratedVaultBase {
         taken[index] = true;
         _pullToken(charge);
         tokenId = _tapeOut(index, netlist, nIn, nOut, recipient, false, fee);
+        saleOf[index] = Sale(recipient, uint96(charge > type(uint96).max ? type(uint96).max : charge));
         emit Purchased(index, tokenId, recipient, charge);
         _distribute(charge);
     }
@@ -290,6 +299,23 @@ contract CuratedVault is CuratedVaultBase {
             tokenIds[i] = _tapeOut(index, netlist, nIn, nOut, TREASURY, true, fee);
             emit ReservedClaimed(index, tokenIds[i], TREASURY);
         }
+    }
+
+    /// @notice Curator only, once the sale is over (every work taped out, or the sale end passed): return the price
+    /// paid for each of the sold works `indexes` to the address that received it at mint (once per work). The circuits
+    /// stay with their holders; the tape-out fee is not returned (it was spent on the tape-out). The curator sends the
+    /// total with the call (native coin: exactly; token: approved to this vault).
+    function rebate(uint256[] calldata indexes) external payable nonReentrant {
+        _onlyCurator();
+        if (block.timestamp < saleEnd && sold < COUNT) revert SaleNotOver();
+        uint256 left = msg.value;
+        for (uint256 i; i < indexes.length; i++) {
+            Sale storage x = saleOf[indexes[i]];
+            uint256 a = x.price;
+            x.price = 0;
+            left = _rebate(indexes[i], x.minter, a, left);
+        }
+        if (left != 0) revert WrongPayment(msg.value - left);
     }
 
     function finalizable() public view override returns (bool) {

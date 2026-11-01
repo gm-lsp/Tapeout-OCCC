@@ -93,6 +93,8 @@ abstract contract CuratedVaultBase is ReentrancyGuard, ICircuitURIProvider, ICur
 
     event Paid(address indexed to, uint256 amount, bool deferred);
     event Withdrawn(address indexed payee, uint256 amount);
+    /// @notice the curator returned the price of an already minted work to its minter, who keeps the circuit
+    event Rebated(uint256 indexed key, address indexed minter, uint256 amount);
     event Finalized(uint256 nandBurned, uint256 latchBurned);
     event SalePaused(bool paused);
     event SaleEndExtended(uint64 previousEnd, uint64 newEnd);
@@ -128,6 +130,8 @@ abstract contract CuratedVaultBase is ReentrancyGuard, ICircuitURIProvider, ICur
     error TokenAmountMismatch(uint256 expected, uint256 received);
     error InvalidPresalePrice();
     error PresaleAbovePrice(uint256 presalePrice, uint256 price);
+    error NothingToRebate();
+    error SaleNotOver();
 
     /// @dev the implementation itself can never be initialised; only its clones can
     constructor() {
@@ -378,6 +382,23 @@ abstract contract CuratedVaultBase is ReentrancyGuard, ICircuitURIProvider, ICur
         if (index >= COUNT) revert IndexOutOfRange();
         if (isTaken) revert AlreadyTaken();
         if (reservedClaimed >= RESERVED_COUNT) revert ReservedQuotaUsed();
+    }
+
+    // ------------------------------------------------------------------ rebates (the curator returns a price)
+
+    /// @dev Pays one rebate of `amount` to `to`, taken from the curator (native: from `left`, what is left of msg.value;
+    /// token: pulled, exact), kept in `owed` if the transfer fails. Returns what is left of msg.value.
+    function _rebate(uint256 key, address to, uint256 amount, uint256 left) internal returns (uint256) {
+        if (amount == 0) revert NothingToRebate();
+        if (PAYMENT_TOKEN == address(0)) {
+            if (left < amount) revert WrongPayment(amount);
+            left -= amount;
+        } else {
+            _pullToken(amount);
+        }
+        _send(to, amount);
+        emit Rebated(key, to, amount);
+        return left;
     }
 
     // ------------------------------------------------------------------ payouts kept in the vault

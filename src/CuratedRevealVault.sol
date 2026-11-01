@@ -45,6 +45,11 @@ contract CuratedRevealVault is CuratedHiddenBase {
         }
     }
 
+    /// @dev an instant-reveal slot's holder never changes
+    function _minterOf(uint256, Slot storage s) internal view override returns (address) {
+        return s.holder;
+    }
+
     function _onSlot(uint256 slot, uint32 pool, uint32 pos, address) internal override {
         queue[pool][pos] = slot;
         _anchor(block.number);
