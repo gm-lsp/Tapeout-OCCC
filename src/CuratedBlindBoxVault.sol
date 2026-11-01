@@ -61,7 +61,7 @@ contract CuratedBlindBoxVault is CuratedHiddenBase {
     function reveal(bytes32 revealSecret, string calldata metadataURI) external nonReentrant {
         _onlyCurator();
         if (revealed) revert AlreadyRevealed();
-        if (!soldOut() && block.timestamp < saleEnd) revert NotRevealable();
+        if (!_saleOver()) revert NotRevealable();
         if (keccak256(abi.encode(revealSecret)) != SECRET_HASH) revert InvalidSecret();
         revealed = true;
         secret = revealSecret;
@@ -140,17 +140,19 @@ contract CuratedBlindBoxVault is CuratedHiddenBase {
         }
     }
 
-    /// @notice Blind box, curator only: refund passes that have not been redeemed, to their current holders: any pass
-    /// before the reveal; after it, only a pass that can no longer be redeemed because TapeOut's fee has risen above
-    /// what the pass holds (so the curator, who knows the assignment then, cannot pick which buyers lose their work). The curator sends the prices back with the call (native: msg.value; token: approved
-    /// to this vault); each pass's tape-out and reveal fees go back too. A refunded pass's work is never sold.
+    /// @notice Blind box, curator only, once the sale is over (sold out or past its end): refund passes that have not
+    /// been redeemed, to their current holders: any pass before the reveal; after it, only a pass that can no longer be
+    /// redeemed because TapeOut's fee has risen above what the pass holds (so the curator, who knows the assignment
+    /// then, cannot pick which buyers lose their work). The curator sends exactly the prices back with the call
+    /// (native: msg.value; token: approved to this vault); each pass's fees go back too. Its work is never sold.
     function refund(uint256[] calldata ids) external payable nonReentrant {
         _onlyCurator();
+        if (!_saleOver()) revert NotRefundable();
         uint256 left = msg.value;
         for (uint256 i; i < ids.length; i++) {
             Slot storage s = slots[ids[i]];
             if (s.state != PENDING) revert NotPending();
-            if (revealed && circuits.TAPEOUT_FEE() <= uint256(s.feeHeld) + REVEAL_FEE) revert NotRevealable();
+            if (revealed && circuits.TAPEOUT_FEE() <= uint256(s.feeHeld) + REVEAL_FEE) revert NotRefundable();
             _burnPass(ids[i], s);
             left = _refund(ids[i], s, left);
         }

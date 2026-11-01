@@ -591,10 +591,18 @@ contract RevealForkTest is ModesBase {
         vm.prank(attacker);
         vm.expectRevert(CuratedVaultBase.OnlyCurator.selector);
         vault().refundPending{value: price}(s1, sec, sp);
-        vm.prank(curator);
-        vm.expectRevert(CuratedRevealVault.NotRefundable.selector);
-        vault().refundPending{value: price}(s1, sec, sp);
         uint256 high = fee + vault().REVEAL_FEE() + 1;
+        vm.mockCall(address(C), abi.encodeWithSignature("TAPEOUT_FEE()"), abi.encode(high));
+        // not during the sale, even for an undeliverable slot
+        vm.prank(curator);
+        vm.expectRevert(CuratedHiddenBase.NotRefundable.selector);
+        vault().refundPending{value: price}(s1, sec, sp);
+        vm.warp(vault().SALE_END());
+        vm.clearMockedCalls();
+        // after the sale, not for a slot that can still be delivered
+        vm.prank(curator);
+        vm.expectRevert(CuratedHiddenBase.NotRefundable.selector);
+        vault().refundPending{value: price}(s1, sec, sp);
         vm.mockCall(address(C), abi.encodeWithSignature("TAPEOUT_FEE()"), abi.encode(high));
         vm.prank(curator);
         vm.expectRevert(abi.encodeWithSelector(CuratedVaultBase.WrongPayment.selector, price));
@@ -999,19 +1007,23 @@ contract BlindBoxForkTest is ModesBase {
         vm.prank(attacker);
         vm.expectRevert(CuratedVaultBase.OnlyCurator.selector);
         vault().refund{value: price}(ids);
+        // no refunds while the sale is on
+        vm.prank(curator);
+        vm.expectRevert(CuratedHiddenBase.NotRefundable.selector);
+        vault().refund{value: price}(ids);
+        // the sale ends unsold: refunds before the reveal, then the reveal
+        vm.warp(vault().SALE_END());
         uint256 b0 = buyer.balance;
         vm.prank(curator);
         vault().refund{value: price}(ids);
         assertEq(buyer.balance - b0, price + fee + vault().REVEAL_FEE());
         vm.expectRevert(CuratedHiddenBase.NotPass.selector);
         vault().ownerOf(s1);
-        // the sale ends unsold; the reveal is allowed then
-        vm.warp(vault().SALE_END());
         bytes32 seed = _reveal();
         ids[0] = s2;
         uint256 p1 = vault().poolPrice(1);
         vm.prank(curator);
-        vm.expectRevert(CuratedHiddenBase.NotRevealable.selector);
+        vm.expectRevert(CuratedHiddenBase.NotRefundable.selector);
         vault().refund{value: p1}(ids);
         // TapeOut raises its fee above what the pass holds: redeeming fails, so the curator may refund
         uint256 high = fee + vault().REVEAL_FEE() + 1;

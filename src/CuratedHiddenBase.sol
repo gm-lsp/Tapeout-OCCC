@@ -73,6 +73,7 @@ abstract contract CuratedHiddenBase is CuratedVaultBase {
     error AlreadyRevealed();
     error NotRevealed();
     error NotClaimableYet();
+    error NotRefundable();
     error NotAuthorized();
     error NotPass();
     error UnsafeRecipient();
@@ -198,6 +199,11 @@ abstract contract CuratedHiddenBase is CuratedVaultBase {
     /// @dev mode-specific bookkeeping of a new slot
     function _onSlot(uint256 slot, uint32 pool, uint32 pos, address recipient) internal virtual;
 
+    /// @dev every pool sold out, or the sale end passed: refunds, reserved claims and the blind-box reveal wait for it
+    function _saleOver() internal view returns (bool) {
+        return block.timestamp >= saleEnd || soldOut();
+    }
+
     /// @notice True once every pool has sold all its slots.
     function soldOut() public view returns (bool) {
         for (uint256 i; i < poolCount.length; i++) {
@@ -278,7 +284,7 @@ abstract contract CuratedHiddenBase is CuratedVaultBase {
     /// sold or the sale has ended (a tape-out publishes the netlist), and until finalize. Pays TAPEOUT_FEE() per work.
     function claimReservedBatch(HiddenWork[] calldata works) external payable nonReentrant returns (uint256[] memory ids) {
         _onlyCurator();
-        if (!soldOut() && block.timestamp < saleEnd) revert NotClaimableYet();
+        if (!_saleOver()) revert NotClaimableYet();
         uint256 fee = circuits.TAPEOUT_FEE();
         if (msg.value != fee * works.length) revert WrongPayment(fee * works.length);
         ids = new uint256[](works.length);
