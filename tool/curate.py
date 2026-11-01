@@ -1360,7 +1360,7 @@ def build(spec_path: str, out_path: str, url: str | None = None) -> dict:
             elif reveal_fee < 3 * need:
                 warnings.append(f"revealFeeWei {reveal_fee} leaves less than 3x headroom over the estimated gas at the "
                                 f"reference gas price ({need}): the same budget also absorbs gas spikes and a rise of "
-                                f"TapeOut's fee; a generous fee costs nothing extra, what is left is fee surplus")
+                                f"TapeOut's fee; any shortfall is made up from the curator's fee reserve (fundFees)")
         pass_uri = spec.get("passURI", "")
         if mode == 2:
             if pass_uri and not is_content_uri(pass_uri):

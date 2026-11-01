@@ -143,8 +143,8 @@ contract CuratedRevealVault is CuratedHiddenBase {
     }
 
     /// @notice Instant reveal, curator only, once the sale is over (sold out or past its end): refund the next slot of a
-    /// pool that can no longer be delivered because TapeOut's fee has risen above what the slot holds (anyone may top
-    /// it up instead, topUp). Only then: otherwise a curator who can compute the draw could refund exactly the buyers
+    /// pool that can no longer be delivered because TapeOut's fee has risen above what the slot and the fee reserve
+    /// hold (fundFees makes it deliverable instead). Only then: otherwise a curator who can compute the draw could refund exactly the buyers
     /// who drew rare works. The slot's draw is still
     /// made and the drawn work is withdrawn from sale, so a refund never changes which work any other slot gets. The
     /// curator sends the price back with the call (native: exactly as msg.value; token: approved to this vault); the
@@ -156,7 +156,9 @@ contract CuratedRevealVault is CuratedHiddenBase {
     {
         _onlyCurator();
         Slot storage s = _turn(slot);
-        if (!_saleOver() || circuits.TAPEOUT_FEE() <= uint256(s.feeHeld) + REVEAL_FEE) revert NotRefundable();
+        if (!_saleOver() || circuits.TAPEOUT_FEE() <= uint256(s.feeHeld) + REVEAL_FEE + feeReserve) {
+            revert NotRefundable();
+        }
         _draw(slot, s, slotSecret, secretProof);
         if (_refund(slot, s, msg.value) != 0) revert WrongPayment(s.paid);
     }

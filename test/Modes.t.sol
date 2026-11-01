@@ -147,10 +147,26 @@ abstract contract ModesBase is Test {
         leaves = new bytes32[](items.length);
         for (uint256 i; i < items.length; i++) {
             Item storage x = items[i];
-            leaves[i] = CuratedHiddenBase(payable(vaultAddr)).hiddenLeafOf(
-                x.index, keccak256(x.netlist), x.nIn, x.nOut, x.pool, x.reserved
-            );
+            leaves[i] = _hiddenLeaf(x.index, keccak256(x.netlist), x.nIn, x.nOut, x.pool, x.reserved);
         }
+    }
+
+    /// a hidden work leaf, computed here from the TAP's formula (§13)
+    function _hiddenLeaf(uint256 index, bytes32 nh, uint32 nIn, uint32 nOut, uint32 pool, bool reserved)
+        internal
+        view
+        returns (bytes32)
+    {
+        CuratedHiddenBase v = CuratedHiddenBase(payable(vaultAddr));
+        return keccak256(bytes.concat(keccak256(abi.encode(block.chainid, address(v.REGISTRY()), v.CURATOR(),
+            keccak256("TAP-curated-hidden-work"), index, nh, nIn, nOut, pool, reserved))));
+    }
+
+    /// a presale pool-price leaf, computed here from the TAP's formula (§13.1)
+    function _poolPriceLeaf(uint256 pool, uint32 tier, uint256 price) internal view returns (bytes32) {
+        CuratedHiddenBase v = CuratedHiddenBase(payable(vaultAddr));
+        return keccak256(bytes.concat(keccak256(abi.encode(block.chainid, address(v.REGISTRY()), v.CURATOR(),
+            keccak256("TAP-curated-presale-pool-price"), v.ROOT(), pool, tier, price))));
     }
 
     function _hwork(uint256 index) internal view returns (CuratedHiddenBase.HiddenWork memory w) {
@@ -321,10 +337,10 @@ contract CopiesForkTest is ModesBase {
                 uint256 price = vm.parseJsonUint(
                     manifest, string.concat(".presaleTiers[", vm.toString(t), "].prices[", vm.toString(r), "]")
                 );
-                leaves[k++] = vault().presalePriceLeafOf(it.first, t, price);
+                leaves[k++] = CuratedVault(payable(vaultAddr)).presalePriceLeafOf(it.first, t, price);
             }
         }
-        (bytes32 root, bytes32[] memory pproof) = _tree(leaves, vault().presalePriceLeafOf(2, 0, og));
+        (bytes32 root, bytes32[] memory pproof) = _tree(leaves, CuratedVault(payable(vaultAddr)).presalePriceLeafOf(2, 0, og));
         assertEq(root, vault().PRESALE_PRICE_ROOT());
         (Item memory it1, bytes32[] memory p1) = _run(1);
         vm.prank(alice);
@@ -489,7 +505,13 @@ contract RevealForkTest is ModesBase {
         assertTrue(e1 != e2);
         assertGe(e3, 4);
         assertEq(vaultAddr.balance, vault().owedNative(col), "only the fee surplus is left, owed to the platform");
+        // the fee collector withdraws its surplus, on record
+        uint256 owedCol = vault().owedNative(col) + vault().owed(col);
+        uint256 cb = col.balance;
+        vm.expectEmit(true, true, false, true, vaultAddr);
+        emit CuratedVaultBase.Withdrawn(col, col, owedCol);
         vault().withdraw(col);
+        assertEq(col.balance - cb, owedCol);
         assertEq(vaultAddr.balance, 0, "nothing left behind once withdrawn");
     }
 
@@ -534,17 +556,17 @@ contract RevealForkTest is ModesBase {
         _fulfill(s4, _expect(s4, keccak256("h4")));
     }
 
-    /// The reveal fee repays gas only up to REVEAL_GAS_PRICE; anyone can top a slot up; the rest is fee surplus,
-    /// credited to the platform (or the payee) and withdrawn on record.
-    function test_Reveal_GasPriceCapAndTopUp() public {
+    /// The reveal fee repays gas only up to REVEAL_GAS_PRICE, made up from the curator's fee reserve when it falls
+    /// short; what a slot does not need is fee surplus, credited to the platform (or the payee) and withdrawn on record.
+    function test_Reveal_GasPriceCapAndReserve() public {
         _launch();
         _mirror();
         uint256 b = vm.getBlockNumber();
         uint256 s1 = _buy(0, buyer);
         vm.roll(b + 2);
         vm.setBlockhash(b + 1, keccak256("g"));
-        vm.prank(buyer2);
-        vault().topUp{value: 0.01 ether}(s1);
+        vm.prank(curator);
+        vault().fundFees{value: 0.01 ether}();
         uint256 cap = vault().REVEAL_GAS_PRICE();
         CuratedHiddenBase.HiddenWork memory w = _work(_expect(s1, keccak256("g")));
         bytes32[] memory sp = _secretProof(s1);
@@ -559,18 +581,11 @@ contract RevealForkTest is ModesBase {
         vm.txGasPrice(0);
         uint256 repaid = server.balance - srv0;
         uint256 surplus = vault().owedNative(col) - col0;
+        uint256 used = 0.01 ether - vault().feeReserve();
         assertLe(repaid, 800_000 * cap, "repaid at most the gas used at the capped price");
         assertEq(buyer.balance, buy0, "the holder's circuit is delivered; the fees are not returned");
-        assertEq(repaid + surplus, 0.01 ether + vault().REVEAL_FEE(), "the rest is the platform's surplus");
-        // the fee collector withdraws its surplus, on record
-        uint256 cb = col.balance;
-        uint256 owedCol = vault().owedNative(col) + vault().owed(col);
-        vm.expectEmit(true, true, false, true, address(vault()));
-        emit CuratedVaultBase.Withdrawn(col, col, owedCol);
-        vault().withdraw(col);
-        assertEq(col.balance - cb, owedCol);
-        vm.expectRevert(CuratedHiddenBase.NotPending.selector);
-        vault().topUp{value: 1}(s1);
+        assertEq(repaid + surplus, vault().REVEAL_FEE() + used, "repaid = reveal fee + reserve used - surplus");
+        assertTrue(used == 0 || surplus == 0, "the reserve only makes up a shortfall");
         // the curator can add a metadata file to a circuit delivered without one, once
         string memory uri = "ar://P05RevealedWorkMetadata_File_NotUploaded_00";
         vm.prank(attacker);
@@ -587,6 +602,60 @@ contract RevealForkTest is ModesBase {
         vm.prank(buyer);
         vm.expectRevert(CuratedVaultBase.ZeroRecipient.selector);
         vault().buySlot{value: due}(0, vaultAddr);
+    }
+
+    /// TapeOut's fee rises above what a slot paid: delivery waits (FeeShortfall) until the curator's fee reserve covers
+    /// the difference, and the tape-out fee and the gas are then made up from it; the curator cannot refund a slot the
+    /// reserve can deliver, and takes the rest of the reserve back once every slot is settled after the sale.
+    function test_Reveal_FeeReserveMakesUpShortfall() public {
+        P.hidden.revealFee = fee / 2; // too little to pay a tape-out fee on its own
+        _launch();
+        _mirror();
+        uint256 b = vm.getBlockNumber();
+        uint256 rf = vault().REVEAL_FEE();
+        vm.mockCall(address(C), abi.encodeWithSignature("TAPEOUT_FEE()"), abi.encode(uint256(0)));
+        vm.prank(buyer);
+        uint256 s1 = vault().buySlot{value: vault().poolPrice(0) + rf}(0, buyer); // the slot paid no tape-out fee
+        vm.clearMockedCalls(); // TapeOut's fee is `fee` again
+        vm.roll(b + 2);
+        vm.setBlockhash(b + 1, keccak256("q"));
+        CuratedHiddenBase.HiddenWork memory w = _work(_expect(s1, keccak256("q")));
+        bytes32[] memory sp = _secretProof(s1);
+        bytes32 sec = _secret(s1);
+        vm.prank(server);
+        vm.expectRevert(CuratedHiddenBase.FeeShortfall.selector);
+        vault().fulfill(s1, sec, sp, w, "");
+        vm.prank(curator);
+        vm.expectEmit(true, false, false, true, vaultAddr);
+        emit CuratedHiddenBase.FeeReserveFunded(curator, 1 ether);
+        vault().fundFees{value: 1 ether}();
+        vm.prank(curator);
+        vm.expectRevert(CuratedHiddenBase.NotClaimableYet.selector);
+        vault().withdrawFeeReserve();
+        vm.warp(vault().SALE_END());
+        uint256 price = vault().poolPrice(0);
+        vm.prank(curator);
+        vm.expectRevert(CuratedHiddenBase.NotRefundable.selector);
+        vault().refundPending{value: price}(s1, sec, sp);
+        uint256 cap = vault().REVEAL_GAS_PRICE();
+        vm.txGasPrice(cap);
+        uint256 srv0 = server.balance;
+        vm.prank(server);
+        uint256 id = vault().fulfill(s1, sec, sp, w, "");
+        vm.txGasPrice(0);
+        uint256 repaid = server.balance - srv0;
+        assertEq(C.ownerOf(id), buyer);
+        assertGt(repaid, 0, "the server's gas is repaid from the reserve");
+        assertEq(1 ether - vault().feeReserve(), fee - rf + repaid, "reserve used = fee shortfall + gas");
+        vm.prank(attacker);
+        vm.expectRevert(CuratedVaultBase.OnlyCurator.selector);
+        vault().withdrawFeeReserve();
+        uint256 left = vault().feeReserve();
+        uint256 c0 = curator.balance;
+        vm.prank(curator);
+        vault().withdrawFeeReserve();
+        assertEq(curator.balance - c0, left, "the rest goes back to the curator");
+        assertEq(vault().feeReserve(), 0);
     }
 
     /// The curator may refund a pending slot only when TapeOut's fee has risen above what it holds (paying the price
@@ -786,11 +855,11 @@ contract RevealForkTest is ModesBase {
         for (uint32 t; t < 2; t++) {
             for (uint256 p; p < 2; p++) {
                 uint256 pr = vm.parseJsonUint(manifest, string.concat(".presaleTiers[", vm.toString(t), "].prices[", vm.toString(p), "]"));
-                leaves[t * 2 + p] = vault().presalePriceLeafOf(p, t, pr);
+                leaves[t * 2 + p] = _poolPriceLeaf(p, t, pr);
             }
         }
         uint256 og1 = vm.parseJsonUint(manifest, ".presaleTiers[0].prices[1]");
-        (bytes32 root, bytes32[] memory pp) = _tree(leaves, vault().presalePriceLeafOf(1, 0, og1));
+        (bytes32 root, bytes32[] memory pp) = _tree(leaves, _poolPriceLeaf(1, 0, og1));
         assertEq(root, vault().PRESALE_PRICE_ROOT());
         uint256 rf = vault().REVEAL_FEE();
         vm.prank(alice);

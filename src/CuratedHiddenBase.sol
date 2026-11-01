@@ -53,12 +53,18 @@ abstract contract CuratedHiddenBase is CuratedVaultBase {
     uint32 public slotsSettled; // delivered or refunded
     mapping(uint256 slot => Slot) public slots;
     mapping(uint256 slot => uint256) public circuitOfSlot; // tape-out id of a delivered slot (0 before)
+    /// @notice native coin the curator set aside to make up any slot whose fees fall short (fundFees)
+    uint256 public feeReserve;
     mapping(uint256 index => bool) public taken; // reserved works claimed
 
     event SlotBought(uint256 indexed slot, uint32 indexed pool, address indexed recipient, uint256 price);
     event SlotDelivered(uint256 indexed slot, uint256 indexed index, uint256 indexed tokenId, address holder);
     event SlotRefunded(uint256 indexed slot, address indexed holder, uint256 price);
     event ReservedClaimed(uint256 indexed index, uint256 indexed tokenId, address indexed treasury);
+    event FeeReserveFunded(address indexed from, uint256 amount);
+    /// @notice the reserve made up `amount` of a slot's tape-out fee or gas repayment
+    event FeeReserveUsed(uint256 indexed slot, uint256 amount);
+    event FeeReserveWithdrawn(uint256 amount);
 
     error WrongMode();
     error NoSuchPool();
@@ -132,7 +138,7 @@ abstract contract CuratedHiddenBase is CuratedVaultBase {
     /// @notice The Merkle leaf of a work in a hidden collection: like the instant leaf, but tagged and with the work's
     /// pool instead of a price (reserved works: pool NO_POOL).
     function hiddenLeafOf(uint256 index, bytes32 netlistHash, uint32 nIn, uint32 nOut, uint32 pool, bool reserved)
-        public
+        internal
         view
         returns (bytes32)
     {
@@ -148,7 +154,7 @@ abstract contract CuratedHiddenBase is CuratedVaultBase {
     }
 
     /// @notice The presale price leaf of a pool for allowlist tier `tier`, bound to the work-list root.
-    function presalePriceLeafOf(uint256 pool, uint32 tier, uint256 presalePrice) public view returns (bytes32) {
+    function presalePriceLeafOf(uint256 pool, uint32 tier, uint256 presalePrice) internal view returns (bytes32) {
         return _priceLeaf(POOL_PRICE_TAG, pool, tier, presalePrice);
     }
 
@@ -252,23 +258,46 @@ abstract contract CuratedHiddenBase is CuratedVaultBase {
 
     function _deliver(uint256 slot, Slot storage s, HiddenWork calldata w) internal returns (uint256 tokenId) {
         uint256 fee = circuits.TAPEOUT_FEE();
-        if (fee > uint256(s.feeHeld) + REVEAL_FEE) revert FeeShortfall();
+        uint256 have = uint256(s.feeHeld) + REVEAL_FEE;
+        // TapeOut raised its fee above what the slot paid: the curator's reserve makes up the difference
+        if (fee > have) have += _fromReserve(slot, fee - have, true);
         tokenId = _tapeOut(w.index, w.netlist, w.nIn, w.nOut, s.holder, false, fee);
         circuitOfSlot[slot] = tokenId;
         // what is left of the slot's fees after the tape-out: the reveal budget
-        s.feeHeld = uint96(uint256(s.feeHeld) + REVEAL_FEE - fee);
+        s.feeHeld = uint96(have - fee);
         emit SlotDelivered(slot, w.index, tokenId, s.holder);
     }
 
-    /// @notice Add native coin to a pending slot's fees, for example when TapeOut's fee has risen above what the slot
-    /// holds or gas is dearer than its reveal fee covers. Anyone may call (the holder, the platform); whatever is left
-    /// after the delivery is surplus (_surplus).
-    function topUp(uint256 slot) external payable {
-        Slot storage s = slots[slot];
-        if (s.state != PENDING) revert NotPending();
-        uint256 f = uint256(s.feeHeld) + msg.value;
-        if (f > type(uint96).max) revert WrongPayment(0);
-        s.feeHeld = uint96(f);
+    /// @notice Add native coin to the fee reserve, which makes up any slot's shortfall: a tape-out fee TapeOut raised
+    /// above what the slot paid, or gas dearer than the slot's reveal fee covers (still at most REVEAL_GAS_PRICE).
+    /// Meant for the curator, so that the project, not its buyers, bears a shortfall; anyone may add.
+    function fundFees() external payable {
+        feeReserve += msg.value;
+        emit FeeReserveFunded(msg.sender, msg.value);
+    }
+
+    /// @notice Curator only: take back what is left of the fee reserve, once the sale is over and every slot is
+    /// delivered or refunded (so no slot can still need it).
+    function withdrawFeeReserve() external nonReentrant {
+        _onlyCurator();
+        if (!_saleOver() || slotsSettled != slotsSold) revert NotClaimableYet();
+        uint256 r = feeReserve;
+        feeReserve = 0;
+        _sendNative(msg.sender, r);
+        emit FeeReserveWithdrawn(r);
+    }
+
+    /// @dev takes up to `need` from the reserve for `slot` (all of it, or FeeShortfall, when `all`); returns the amount
+    function _fromReserve(uint256 slot, uint256 need, bool all) internal returns (uint256 d) {
+        uint256 r = feeReserve;
+        if (need > r) {
+            if (all) revert FeeShortfall();
+            need = r;
+        }
+        if (need == 0) return 0;
+        feeReserve = r - need;
+        emit FeeReserveUsed(slot, need);
+        return need;
     }
 
     /// @dev the call data a delivery of `w` needs: its netlist and proof, plus a bounded rest (16 gas per byte)
@@ -276,16 +305,20 @@ abstract contract CuratedHiddenBase is CuratedVaultBase {
         return 16 * w.netlist.length + 512 * w.proof.length + 16 * 640;
     }
 
-    /// @dev repays the caller min(gas used x min(gas price, REVEAL_GAS_PRICE), the slot's remaining budget); the rest
-    /// is surplus, credited to the fee collector
+    /// @dev repays the caller gas used x min(gas price, REVEAL_GAS_PRICE) from the slot's remaining budget, made up
+    /// from the fee reserve as far as it goes; what the slot does not need is surplus, credited to the fee collector
     function _settleGas(uint256 slot, Slot storage s, uint256 gasUsed) internal {
         uint256 budget = s.feeHeld;
         s.feeHeld = 0;
         uint256 gp = tx.gasprice < REVEAL_GAS_PRICE ? tx.gasprice : REVEAL_GAS_PRICE;
         uint256 cost = gasUsed * gp;
-        uint256 pay = cost < budget ? cost : budget;
-        _sendNative(msg.sender, pay);
-        _surplus(slot, budget - pay);
+        if (cost > budget) {
+            // gas dearer than the slot's budget: the reserve makes up what it can
+            _sendNative(msg.sender, budget + _fromReserve(slot, cost - budget, false));
+        } else {
+            _sendNative(msg.sender, cost);
+            _surplus(slot, budget - cost);
+        }
     }
 
     /// @dev returns `paid` (from the curator) and the slot's fees, never spent (nothing was taped out), to its holder;
