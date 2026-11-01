@@ -594,7 +594,7 @@ The tool also refuses work lists with a REF to a circuit that does not exist yet
 
 ## Reference Implementation
 
-Repository: <https://github.com/gm-lsp/Tapeout-OCCC/tree/786a2b08f577643b87b7d9667ba4106d382998b5> (MIT).
+Repository: <https://github.com/gm-lsp/Tapeout-OCCC/tree/20f93319047e75c7c59a64fce94d89db413c1c67> (MIT).
 
 - `src/CuratedRegistry.sol` — registry and launcher (§3, §4): checks the launch parameters, clones the implementation of the sale mode, records serials, per-circuit metadata files and blind-box passes.
 - `src/CuratedTypes.sol` — the launch parameters and the sale-mode numbers.

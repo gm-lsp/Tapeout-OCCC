@@ -571,7 +571,7 @@ metadataLeaf = keccak256(bytes.concat(keccak256(abi.encode(bytes32 keccak256("TA
 
 ## 参考实现
 
-代码仓库：<https://github.com/gm-lsp/Tapeout-OCCC/tree/786a2b08f577643b87b7d9667ba4106d382998b5>（MIT）
+代码仓库：<https://github.com/gm-lsp/Tapeout-OCCC/tree/20f93319047e75c7c59a64fce94d89db413c1c67>（MIT）
 - `src/CuratedRegistry.sol`：登记合约兼发行器（第 3、4 节）：检查发行参数，按发售方式克隆实现，记录官方编号、每件电路的元数据文件和盲盒凭证
 - `src/CuratedTypes.sol`：发行参数和发售方式编号
 - `src/CuratedVaultBase.sol`：所有 Vault 共有的部分（第 6 节）：发行、预售、单钱包限额、带 `owed` 兜底的直接付款、收款地址、预留检查、收尾、销售控制
